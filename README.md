@@ -26,7 +26,7 @@ if args.melody:
                 in groupby(notes_on, itemgetter(0))]
 ```
 
-`midifile.events` is defines [there](https://github.com/dsacre/pysmf/blob/master/src/smf.pyx#L226).
+`midifile.events` is defined [there](https://github.com/dsacre/pysmf/blob/master/src/smf.pyx#L226).
 It uses the `smf_get_next_event` function.
 
 The elements at the same "tick" in `notes_on` are merged to keep only the highest pitch.
@@ -34,7 +34,7 @@ It is possible to do it on the fly (replace the last element or add a new one) w
 appending all the "Note On" events.
 
 Now you can forget about the times of the events, and only keep the filenames with
-their content encoded as `uint8_t*` (for memory saving) since there are only 128 pitches.
+their content encoded as `uint8_t*` (for memory saving) since there are only 128 < 256 possible pitches.
 
 ## Index them
 
@@ -44,7 +44,7 @@ Look into the examples to construct the suffix array of the concatenation of *al
 
 ## Search
 
-Thanks to libdivufsort, we can retrieve the index of any pattern given in the input in the concatenation of all files.
+Thanks to libdivufsort, we can retrieve the index of any pattern of notes given as the input in the concatenation of all files.
 
 Now, we need to find the file associated to the index. Just build an array of the offsets of each file in the concatenation,
 and do a binary search in it.
