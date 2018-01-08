@@ -63,5 +63,5 @@ The goal is to build a website (at least an API) that can communicate with the C
 - User friendly note to midi code conversion using the
 [english convention](http://www.electronics.dit.ie/staff/tscarff/Music_technology/midi/midi_note_numbers_for_octaves.htm)
 - Ignore octave (needs another indexing of the database modulo 12)
-- Search through transpositions (do 12 patters queries with the "ignore octave" database)
+- Search through transpositions (do 12 pattern queries with the "ignore octave" database)
 - Use http://www.vexflow.com/ to display the original score around the match
