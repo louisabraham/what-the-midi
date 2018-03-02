@@ -347,7 +347,7 @@ def test_null_safety():
     results = list(gsa.search(b"naa"))
     assert(results == [])
     gsa.is_correct()
-    print(list(gsa.common_substrings()))
+    # print(list(gsa.common_substrings()))
 
 
 def test():
