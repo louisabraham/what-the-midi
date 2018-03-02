@@ -16,9 +16,7 @@ import collections
 
 import ctypes
 import ctypes.util
-from array import array
 
-from itertools import repeat
 from bisect import bisect_right
 
 #==============================================================================#
@@ -88,7 +86,6 @@ class SuffixArray:
         self.sa = (ctypes.c_int * len(self.text))()
         if not clone:
             divsufsort(self.text, self.sa)
-        self.sa = array('i', self.sa)
 
     def check(self, text=None):
         """Checks whether the suffix array is correct for the given text.
