@@ -53,6 +53,7 @@ TODO
 ====
 
 -   Build a web app with Flask
+-   Compress database for limited RAM
 
 Additional features
 -------------------
