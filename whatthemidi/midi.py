@@ -5,6 +5,7 @@ tracks except drums.
 """
 
 import io
+import os
 import re
 from dataclasses import dataclass
 
@@ -64,18 +65,51 @@ def ticks_to_seconds(ticks, tempo_ticks, tempo_mspq, ppq):
     return start_sec[k] + (ticks - tt[k]) * sec_per_tick[k]
 
 
-def melody_from_notes(times, pitches, tempo_ticks, tempo_mspq, ppq) -> Melody:
-    """Highest note at each onset. times, pitches: all the non-drum notes."""
+# earlier notes checked for a higher note that still sounds. 0 (default): no
+# skyline rule. The rule finds songs whose accompaniment plays between the
+# melody notes, but it drops the inner voices that a listener hears in
+# keyboard music (Bach, Scarlatti): the approximate search handles both.
+SKYLINE_LOOKBACK = int(os.environ.get("WTM_SKYLINE_LOOKBACK", 0))
+
+
+def skyline(t, p, end, ppq, lookback=SKYLINE_LOOKBACK):
+    """Mask of the notes to keep, among the highest notes of each onset.
+
+    A note is dropped when an earlier, higher note still sounds at its
+    onset: for example a left hand note played while the right hand holds
+    the melody. An overlap shorter than a 32nd note does not count (legato
+    playing). Notes are checked against the notes kept by a first pass, so
+    a dropped note does not drop other notes.
+    """
+    tolerance = max(ppq // 8, 1)
+    keep = np.ones(len(t), dtype=bool)
+    for _ in range(2):
+        blocked = np.zeros(len(t), dtype=bool)
+        for k in range(1, min(lookback, len(t) - 1) + 1):
+            blocked[k:] |= keep[:-k] & (p[:-k] > p[k:]) & (end[:-k] - t[k:] > tolerance)
+        keep = ~blocked
+    return keep
+
+
+def melody_from_notes(times, pitches, tempo_ticks, tempo_mspq, ppq, durations=None,
+                      lookback=None) -> Melody:
+    """The melody of a file: the highest note at each onset, without the
+    notes that start under a higher note that still sounds (see skyline).
+    times, pitches, durations: all the non-drum notes."""
     if ppq <= 0:
         raise ValueError(f"unsupported time division: {ppq}")
     t = np.asarray(times, dtype=np.int64)
     p = np.asarray(pitches, dtype=np.int16)
+    d = np.zeros(len(t), np.int64) if durations is None else np.asarray(durations, dtype=np.int64)
     # sort by time, then highest pitch first, and keep the first note of each onset
     order = np.lexsort((-p, t))
-    t, p = t[order], p[order]
+    t, p, d = t[order], p[order], d[order]
     keep = np.ones(len(t), dtype=bool)
     keep[1:] = t[1:] != t[:-1]
-    t, p = np.maximum(t[keep], 0), p[keep]
+    t, p, d = np.maximum(t[keep], 0), p[keep], d[keep]
+    keep = skyline(t, p, t + np.maximum(d, 0), ppq,
+                   SKYLINE_LOOKBACK if lookback is None else lookback)
+    t, p = t[keep], p[keep]
     tempo_ticks, tempo_mspq = tempo_map(tempo_ticks, tempo_mspq)
     return Melody(
         pitches=p.astype(np.uint8),
@@ -87,16 +121,18 @@ def melody_from_notes(times, pitches, tempo_ticks, tempo_mspq, ppq) -> Melody:
 
 
 def melody_from_score(score: Score) -> Melody:
-    times, pitches = [np.zeros(0, np.int64)], [np.zeros(0, np.int16)]
+    times, pitches, durations = [np.zeros(0, np.int64)], [np.zeros(0, np.int16)], [np.zeros(0, np.int64)]
     for track in score.tracks:
         if not track.is_drum:
             notes = track.notes.numpy()
             times.append(notes["time"])
             pitches.append(notes["pitch"])
+            durations.append(notes["duration"])
     tempos = score.tempos.numpy()
     return melody_from_notes(
         np.concatenate(times), np.concatenate(pitches),
         tempos["time"], tempos["mspq"], score.ticks_per_quarter,
+        durations=np.concatenate(durations),
     )
 
 
@@ -105,18 +141,24 @@ def melody_from_mido(data: bytes) -> Melody:
     import mido
 
     midi = mido.MidiFile(file=io.BytesIO(data), clip=True)
-    times, pitches, tempo_ticks, tempo_mspq = [], [], [], []
+    times, pitches, durations, tempo_ticks, tempo_mspq = [], [], [], [], []
     for track in midi.tracks:
-        tick = 0
+        tick, sounding = 0, {}  # (channel, pitch) -> indexes of the notes that sound
         for msg in track:
             tick += msg.time
             if msg.type == "note_on" and msg.velocity > 0 and msg.channel != 9:
+                sounding.setdefault((msg.channel, msg.note), []).append(len(times))
                 times.append(tick)
                 pitches.append(msg.note)
+                durations.append(0)
+            elif msg.type in ("note_off", "note_on") and sounding.get((msg.channel, msg.note)):
+                i = sounding[msg.channel, msg.note].pop(0)
+                durations[i] = tick - times[i]
             elif msg.type == "set_tempo":
                 tempo_ticks.append(tick)
                 tempo_mspq.append(msg.tempo)
-    return melody_from_notes(times, pitches, tempo_ticks, tempo_mspq, midi.ticks_per_beat)
+    return melody_from_notes(times, pitches, tempo_ticks, tempo_mspq, midi.ticks_per_beat,
+                             durations=durations)
 
 
 def parse_midi_bytes(data: bytes) -> Melody:

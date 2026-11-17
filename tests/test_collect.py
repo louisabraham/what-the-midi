@@ -40,7 +40,7 @@ def store(tmp_path):
         z.writestr("readme.txt", b"not a midi file")
         z.writestr("more.zip", nested.getvalue())
     clean = tmp_path / "clean"
-    write_midi(clean / "Artist" / "X.mid", [(False, [(120 * i, p) for i, p in enumerate(X)])])
+    write_midi(clean / "Artist" / "Song X.mid", [(False, [(120 * i, p) for i, p in enumerate(X)])])
 
     store = tmp_path / "store"
     stats = ingest("midiman", [archive], store, jobs=1)
@@ -66,13 +66,13 @@ def test_build(store, tmp_path):
     db = Database(tmp_path / "db")
     docs = {name: i for i, name in enumerate(db.names)}
     # X has the name of the source with the best priority, without its top directory
-    assert set(docs) == {"X.mid", "y.mid", "more/deep/z.mid"}
-    assert db.source(docs["X.mid"]) == "lakh_clean"
+    assert set(docs) == {"Song X.mid", "y.mid", "more/deep/z.mid"}
+    assert db.source(docs["Song X.mid"]) == "lakh_clean"
     assert db.source(docs["y.mid"]) == "midiman"
     # 4 files have the melody X: 2 with the same bytes, 1 slower, 1 in lakh_clean
-    assert db.copies[docs["X.mid"]] == 4
+    assert db.copies[docs["Song X.mid"]] == 4
     result = db.search(X[2:6])
-    assert result["results"][0]["file"] == "X.mid"
+    assert result["results"][0]["file"] == "Song X.mid"
     assert result["results"][0]["copies"] == 4
 
 
@@ -87,7 +87,7 @@ def test_build_in_parts(store, tmp_path):
         for r in a["results"] + b["results"]:
             del r["doc"]  # numbers differ: the parts keep the order of the store
         assert a == b, query
-    doc = [parts.names[i] for i in range(3)].index("X.mid")
+    doc = [parts.names[i] for i in range(3)].index("Song X.mid")
     assert parts.source(doc) == "lakh_clean"
     assert parts.context(doc, 0, 2, 1)["notes"][0]["p"] == X[0]
 

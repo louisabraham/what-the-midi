@@ -38,7 +38,12 @@
       <p>
         {#if name.folder}{name.folder}{/if}
         {#if result.source}<span class="tag" title="Collection">{result.source}</span>{/if}
-        {#if result.copies > 1}<span class="tag" title="Number of files with this melody">{result.copies} copies</span>{/if}
+        {#if result.approximate}<span class="tag approx" title="Not an exact match: notes between the notes of the query, or notes of the query not found">≈ {[
+          result.approximate.inserted && `${result.approximate.inserted} extra`,
+          result.approximate.skipped && `${result.approximate.skipped} missing`,
+        ].filter(Boolean).join(', ')}</span>{/if}
+        {#if result.versions > 1}<span class="tag" title="Number of similar melodies grouped in this result">{result.versions} versions</span>{/if}
+        {#if result.copies > 1}<span class="tag" title="Number of files with this melody or a similar one">{result.copies} copies</span>{/if}
       </p>
     </div>
     <button type="button" class="play" onclick={play} aria-label={playing ? 'Stop' : 'Play'}>
@@ -46,7 +51,8 @@
     </button>
   </header>
   <Score notes={view.notes} ppq={view.ppq} from={view.match.pos - view.start}
-    to={view.match.pos - view.start + view.match.len} />
+    to={view.match.pos - view.start + view.match.len}
+    only={view.match.notes ? view.match.notes.map((n) => n + view.match.pos - view.start) : null} />
   <footer>
     <span>{result.occurrences} {result.occurrences === 1 ? 'match' : 'matches'} at</span>
     {#each result.positions as position (position.pos)}
@@ -97,6 +103,10 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     font-size: 0.75rem;
+  }
+  .tag.approx {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .name p .tag:first-child {
     margin-left: 0;

@@ -2,11 +2,11 @@
   import { renderScore } from './score.js';
 
   /** notes: [{ p, tick }] */
-  let { notes, ppq = 0, from = 0, to = 0 } = $props();
+  let { notes, ppq = 0, from = 0, to = 0, only = null } = $props();
   let el;
 
   $effect(() => {
-    renderScore(el, notes, { ppq, from, to });
+    renderScore(el, notes, { ppq, from, to, only });
   });
 </script>
 

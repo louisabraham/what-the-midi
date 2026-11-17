@@ -107,7 +107,8 @@ def test_search_limit(db):
 
 
 def test_search_no_match(db):
-    assert db.search([1, 2, 3]) == {"total": 0, "files_total": 0, "files_exact": True, "results": []}
+    assert db.search([1, 2, 3]) == {"total": 0, "files_total": 0, "files_exact": True,
+                                     "files_approximate": 0, "results": []}
 
 
 def test_search_errors(db):
@@ -155,3 +156,38 @@ def test_parse_midi_melody(tmp_path):
     assert list(m.ticks) == [0, 480, 960, 1440]
     # 2 quarters at 120 BPM, then 1 quarter at 60 BPM
     assert np.allclose(m.seconds, [0, 0.5, 1.0, 2.0])
+
+
+def test_skyline_drops_notes_under_a_held_note(tmp_path):
+    from symusic import Note, Score, Tempo, Track
+
+
+    def parse_midi(path):
+        s = Score(str(path))
+        notes = [(n.time, n.pitch, n.duration) for t in s.tracks for n in t.notes]
+        t, p, d = zip(*notes)
+        from whatthemidi.midi import melody_from_notes
+        return melody_from_notes(t, p, [0], [500000], s.ticks_per_quarter, durations=d, lookback=16)
+
+    score = Score(480)
+    right, left = (Track(name=n, program=0, is_drum=False) for n in ("right", "left"))
+    for i, pitch in enumerate([77, 69, 70, 72, 74]):  # F5 A4 A#4 C5 D5, quarter notes
+        right.notes.append(Note(480 * i, 480, pitch, 90))
+    left.notes.append(Note(480 * 3 + 240, 240, 65, 90))  # F4 while C5 sounds: dropped
+    left.notes.append(Note(480 * 5, 480, 58, 90))  # A#3 after the last note: kept
+    right.notes.append(Note(480 * 6 - 10, 480, 72, 90))  # C5, 10 ticks before A#3 ends
+    left.notes.append(Note(480 * 6 + 5, 480, 60, 90))  # C4: C5 sounds, dropped
+    score.tracks.extend([right, left])
+    score.tempos.append(Tempo(0, 120.0))
+    path = tmp_path / "sky.mid"
+    score.dump_midi(str(path))
+    assert list(parse_midi(path).pitches) == [77, 69, 70, 72, 74, 58, 72]
+
+    # legato: a higher note that ends 10 ticks after the next onset does not drop it
+    score = Score(480)
+    track = Track(name="legato", program=0, is_drum=False)
+    for i, pitch in enumerate([72, 69, 67]):
+        track.notes.append(Note(480 * i, 490, pitch, 90))
+    score.tracks.append(track)
+    score.dump_midi(str(path))
+    assert list(parse_midi(path).pitches) == [72, 69, 67]

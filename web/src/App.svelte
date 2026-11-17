@@ -134,6 +134,10 @@
           {fmt(data.files_total)}{data.files_exact ? '' : '+'} {data.files_total === 1 ? 'file' : 'files'}
           · {data.elapsed_ms} ms
           {#if data.files_total > data.results.length}· first {data.results.length} files{/if}
+          {#if data.files_approximate}· {fmt(data.files_approximate)} approximate{/if}
+        {:else if data.files_approximate}
+          No exact match · {fmt(data.files_approximate)} approximate {data.files_approximate === 1 ? 'match' : 'matches'}
+          (extra notes between your notes, or notes not found)
         {:else}
           No match. Try fewer notes, “Ignore octave”, or “Any key”.
         {/if}

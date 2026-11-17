@@ -5,6 +5,8 @@
     uv run collect/run.py ingest midiman magic_of_midi
     uv run collect/run.py all midiman magic_of_midi   # download + ingest
     uv run collect/run.py stats
+    uv run collect/run.py metadata                    # titles from GigaMIDI (by MD5)
+    uv run collect/run.py neardup                     # group near duplicates
     uv run collect/run.py build data/db-all
 
 Sources are processed in the order of sources.SOURCES, whatever the order
@@ -67,6 +69,11 @@ def main():
         p.add_argument("--redo", action="store_true", help="ingest again sources already ingested")
         p.add_argument("-j", "--jobs", type=int, default=None)
     sub.add_parser("stats", help="duplicates and melodies per source")
+    p = sub.add_parser("metadata", help="load titles from the GigaMIDI metadata CSV")
+    p.add_argument("csv", type=Path, nargs="?",
+                   default=ROOT / "archives/gigamidi/Final-Metadata-Extended-GigaMIDI-Dataset-updated.csv")
+    p = sub.add_parser("neardup", help="group the melodies that are almost the same")
+    p.add_argument("-j", "--jobs", type=int, default=None)
     p = sub.add_parser("build", help="build the index from the store")
     p.add_argument("db_dir", type=Path)
     p.add_argument("--only", nargs="*", help="only these sources")
@@ -111,6 +118,14 @@ def main():
             print(" ".join(f"{v:>12,}" if isinstance(v, int) else f"{v:>12}" for v in row))
         total = db.execute("SELECT COUNT(*), SUM(notes) FROM melodies").fetchone()
         print(f"total: {total[0]:,} melodies, {total[1] or 0:,} notes")
+    elif args.command == "metadata":
+        from metadata import load_gigamidi_csv
+
+        print(f"{load_gigamidi_csv(args.csv, store):,} titles")
+    elif args.command == "neardup":
+        from neardup import group
+
+        print(json.dumps(group(store, [s.name for s in SOURCES], jobs=args.jobs), indent=1))
     elif args.command == "build":
         from build import build
 

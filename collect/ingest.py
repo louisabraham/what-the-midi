@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS melodies (
     hash TEXT PRIMARY KEY,
     md5 TEXT, source TEXT, path TEXT, notes INTEGER, shard TEXT
 );
+CREATE TABLE IF NOT EXISTS metadata (  -- titles from collection metadata (metadata.py)
+    md5 TEXT PRIMARY KEY, title TEXT, artist TEXT
+);
 CREATE TABLE IF NOT EXISTS sources (
     name TEXT PRIMARY KEY,
     files INTEGER, dup_bytes INTEGER, dup_melody INTEGER, short INTEGER,

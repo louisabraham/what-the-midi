@@ -9,9 +9,11 @@ export const MATCH_COLOR = '#c2410c';
  * Draws notes on one stave in `el`.
  * notes: [{ p, tick }]; with ppq > 0, durations come from the onset
  * differences, else all the notes are quarter notes.
- * Notes with index in [from, to) are in MATCH_COLOR.
+ * Notes with index in [from, to) are in MATCH_COLOR, or only the indexes
+ * in `only` when it is given (an approximate match).
  */
-export async function renderScore(el, notes, { ppq = 0, from = 0, to = 0 } = {}) {
+export async function renderScore(el, notes, { ppq = 0, from = 0, to = 0, only = null } = {}) {
+  const matched = (i) => (only ? only.includes(i) : i >= from && i < to);
   const token = (el.dataset.token = String(Math.random()));
   await fontsReady;
   if (el.dataset.token !== token) return; // a newer render started
@@ -26,7 +28,7 @@ export async function renderScore(el, notes, { ppq = 0, from = 0, to = 0 } = {})
     const note = new StaveNote({ keys: [vexKey(n.p)], duration, clef, autoStem: true });
     if (isBlack(n.p)) note.addModifier(new Accidental('#'), 0);
     if (duration.endsWith('d')) Dot.buildAndAttach([note], { all: true });
-    if (i >= from && i < to) note.setStyle({ fillStyle: MATCH_COLOR, strokeStyle: MATCH_COLOR });
+    if (matched(i)) note.setStyle({ fillStyle: MATCH_COLOR, strokeStyle: MATCH_COLOR });
     return note;
   });
 

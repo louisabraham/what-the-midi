@@ -29,8 +29,8 @@ uv run what-the-midi search data/db "E E F G G F E D" --transpose
 
 [`collect/`](collect/README.md) downloads 9 public collections (the 130k
 files of https://redd.it/3ajwe4, Lakh MIDI, Los Angeles MIDI, GigaMIDI…),
-removes the files with the same bytes or the same melody, and builds
-the index.
+removes the files with the same bytes or the same melody, groups the
+almost identical melodies, and builds the index.
 
 Frontend development: run `serve` on port 8765, then `npm run dev` in
 `web/`. Vite sends `/api` requests to the server.
@@ -39,14 +39,28 @@ Tests: `uv run pytest`.
 
 ## How it works
 
-### Melody extraction
+### Melody extraction and polyphony
 
 [symusic](https://github.com/Yikai-Liao/symusic) (a C++ MIDI parser)
 reads the files. When symusic refuses a file (for example a data byte
 above 127), [mido](https://github.com/mido/mido) reads it and clips the
-bad bytes. We keep only the melody: the highest note at each note onset,
-over all the tracks except drums. Python processes parse the files in
-parallel.
+bad bytes. Python processes parse the files in parallel.
+
+The index stores one sequence of notes per file: the highest note at
+each note onset, over all the tracks except drums. Chords become their
+top note. This sequence is not always the melody that a listener hears:
+
+- When the melody holds a note and another voice plays a new note, that
+  note goes into the sequence (for example a left hand note under a long
+  right hand note).
+- When the melody is not the top voice (a bass line, an inner voice),
+  the sequence does not contain it.
+
+A rule that uses durations (`skyline()` in `whatthemidi/midi.py`: drop
+a note that starts under a higher note that still sounds) removes the
+first problem for songs, but also removes the inner voices of keyboard
+music that a listener hears (Bach, Scarlatti). It is off by default.
+The approximate search handles the first problem instead.
 
 ### Index
 
@@ -83,6 +97,24 @@ melody)`. A melody found in many files is probably a well-known song. A
 file that repeats the query many times is often a loop or an exercise,
 so the number of matches counts less and less. The server
 returns at most 50 files and accepts at most 64 notes per query.
+
+### Approximate search
+
+When the exact search finds fewer files than the page shows, the
+approximate search (`whatthemidi/approx.py`) adds files where the query
+matches with extra notes between its notes (at most 3 between 2 query
+notes) or with notes missing (at most 2 in a row, for a wrong note in the
+query):
+
+1. Seeds: exact pieces of the query (3 to 8 notes), each as short as
+   possible but with at most 5,000 occurrences, found with the suffix
+   array.
+2. The hits of the seeds are grouped by file and by transposition.
+3. Dynamic programming aligns the query with the region around the hits.
+
+An approximate result has the score of an exact result minus 0.5 per
+extra note and 4 per missing note. The result card shows "≈ 2 extra" and
+highlights only the matched notes.
 
 ### Memory
 
@@ -121,16 +153,13 @@ On an Apple M4 Max (16 cores, 128 GB RAM):
 
 ## Limitations
 
-- A match must be a sequence of consecutive melody notes. When the
-  melody holds a note and the accompaniment plays a new one, the
-  accompaniment note goes into the melody, and a long query does not
-  match. Use shorter queries.
+- A melody that is not the top voice is not in the index (see
+  "Melody extraction and polyphony").
 - The ranking uses only the number of matches in each file and the
   number of copies of its melody. Different arrangements of a song are
   different melodies, so their copies are not added together.
 
 ## TODO
 
-- Index each track separately, to find melodies that have accompaniment
-  notes between their notes
-- Approximate search (a wrong note or a missing note in the query)
+- Index each track separately, to find melodies that are not the top
+  voice

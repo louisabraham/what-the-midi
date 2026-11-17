@@ -28,6 +28,7 @@ import numpy as np
 from pydivsufsort import divsufsort, sa_search
 from tqdm import tqdm
 
+from . import approx
 from .midi import is_title, parse_midi, ticks_to_seconds
 
 MODES = ("exact", "octave", "transpose", "transpose_octave")
@@ -123,14 +124,16 @@ def build(midi_dir, db_dir, jobs=None, progress=True):
 
 
 def write_index(db_dir, names, melodies, sources=None, doc_sources=None,
-                doc_copies=None, titles=None, extra_meta=None, progress=True):
+                doc_copies=None, titles=None, doc_versions=None, extra_meta=None,
+                progress=True):
     """Writes the index of the melodies (an iterable of Melody, in the
     order of names) to db_dir.
 
     sources: names of the collections; doc_sources: index in sources of
     the collection of each melody; doc_copies: number of files with each
     melody (more copies rank first when the number of matches is equal);
-    titles: title of each file from its text events, or None.
+    titles: title of each file, or None; doc_versions: number of similar
+    melodies that the file stands for (collect/neardup.py).
 
     The index is written to a new directory that then replaces db_dir, so
     a server that has the old index open keeps working.
@@ -184,6 +187,8 @@ def write_index(db_dir, names, melodies, sources=None, doc_sources=None,
         np.save(tmp / "doc_copies.npy", np.asarray(doc_copies, dtype=np.uint32))
     if titles is not None:
         (tmp / "titles.json").write_text(json.dumps(list(titles), ensure_ascii=False))
+    if doc_versions is not None:
+        np.save(tmp / "doc_versions.npy", np.asarray(doc_versions, dtype=np.uint32))
     meta = {
         "version": FORMAT_VERSION,
         "files": len(names),
@@ -240,6 +245,9 @@ class Database:
         self.copies = None
         if (db_dir / "doc_copies.npy").exists():
             self.copies = np.load(db_dir / "doc_copies.npy")
+        self.versions = None
+        if (db_dir / "doc_versions.npy").exists():
+            self.versions = np.load(db_dir / "doc_versions.npy")
         self.titles = None
         if (db_dir / "titles.json").exists():
             self.titles = json.loads((db_dir / "titles.json").read_text())
@@ -298,36 +306,76 @@ class Database:
             for i in best
         ]
 
-    def result(self, doc, positions, length, context, occurrences, copies):
-        """One file of the search result (positions local to the file)."""
+    def result(self, doc, positions, length, context, occurrences, copies, alignment=None):
+        """One file of the search result (positions local to the file).
+        alignment: the best approximate match (approx.Alignment), or None."""
         shown = positions[:MAX_POSITIONS]
-        return {
+        extra = {}
+        if alignment is not None:
+            length = alignment.notes[-1] - alignment.notes[0] + 1
+            extra = {"approximate": {
+                "quality": round(float(alignment.quality), 3),
+                "inserted": alignment.inserted,
+                "inserted_above": alignment.inserted_above,
+                "skipped": alignment.skipped,
+            }}
+        out = {
             "doc": doc,
             "file": self.names[doc],
             # the rules for titles may be newer than the index
             "title": self.titles[doc] if self.titles and is_title(self.titles[doc]) else None,
             "source": self.source(doc),
             "copies": copies,
+            "versions": int(self.versions[doc]) if self.versions is not None else 1,
             "occurrences": occurrences,
             "positions": [
                 {"pos": int(p), "sec": round(float(s), 2)}
                 for p, s in zip(shown, self.seconds(doc, shown))
             ],
             **self.context(doc, int(positions[0]), length, context),
+            **extra,
         }
+        if alignment is not None:  # highlight only the matched notes
+            out["match"]["notes"] = [p - alignment.notes[0] for p in alignment.notes]
+        return out
 
-    def search(self, notes, octave=False, transpose=False, limit=10, context=8):
-        """Searches a melody and groups the matches by file (at most `limit` files)."""
+    def approximate_groups(self, notes, octave=False, transpose=False, exclude=()):
+        """Files with an approximate match and no exact match, best first:
+        [(quality, score, occurrences, copies, doc, positions, best alignment)]."""
+        out = []
+        for doc, alignments in approx.search(self, notes, octave, transpose).items():
+            if doc in exclude:
+                continue
+            best = min(alignments, key=lambda a: a.penalty)
+            copies = int(self.copies[doc]) if self.copies is not None else 1
+            # the score of an exact match, minus each difference with the query
+            score = float(np.log2(1 + len(alignments)) + np.log2(max(copies, 1)) - best.penalty)
+            positions = np.array(sorted(a.start for a in alignments))
+            out.append((best.quality, score, len(alignments), copies, doc, positions, best))
+        out.sort(key=lambda g: (-g[1], g[4]))
+        return out
+
+    def search(self, notes, octave=False, transpose=False, limit=10, context=8, approximate=True):
+        """Searches a melody and groups the matches by file (at most `limit`
+        files). When the exact search finds fewer than `limit` files, the
+        approximate search (approx.py) adds files after them."""
         limit = _check_query(notes, limit)
         count, files, groups = self.groups(notes, octave, transpose, limit)
+        results = [self.result(doc, positions, len(notes), context, occurrences, copies)
+                   for _, occurrences, copies, doc, positions in groups]
+        n_approx = 0
+        if approximate and files < limit:
+            exact_docs = {doc for _, _, _, doc, _ in groups}
+            approx_groups = self.approximate_groups(notes, octave, transpose, exact_docs)
+            n_approx = len(approx_groups)
+            results += [self.result(doc, positions, len(notes), context, occ, copies, best)
+                        for _, _, occ, copies, doc, positions, best in approx_groups[: limit - files]]
         return {
             "total": count,
             "files_total": files,
             "files_exact": count <= SCAN_CAP,
-            "results": [
-                self.result(doc, positions, len(notes), context, occurrences, copies)
-                for _, occurrences, copies, doc, positions in groups
-            ],
+            "files_approximate": n_approx,
+            "results": results,
         }
 
     def context(self, doc: int, pos: int, length: int, context: int = 8):
@@ -335,7 +383,8 @@ class Database:
         if not 0 <= doc < len(self.names):
             raise ValueError("unknown file")
         n = self.doc_length(doc)
-        if not (0 <= pos < n and 1 <= length <= MAX_QUERY_NOTES and pos + length <= n):
+        if not (0 <= pos < n and 1 <= length <= MAX_QUERY_NOTES * (approx.MAX_INSERT + 1)
+                and pos + length <= n):
             raise ValueError("match outside the file")
         context = max(0, min(int(context), MAX_CONTEXT))
         start = max(0, pos - context)
@@ -399,7 +448,7 @@ class MultiDatabase:
         part, local = self._locate(doc)
         return part.context(local, pos, length, context)
 
-    def search(self, notes, octave=False, transpose=False, limit=10, context=8):
+    def search(self, notes, octave=False, transpose=False, limit=10, context=8, approximate=True):
         limit = _check_query(notes, limit)
         total, files, exact, groups = 0, 0, True, []
         for k, part in enumerate(self.parts):
@@ -412,7 +461,22 @@ class MultiDatabase:
         for _, occ, copies, global_doc, k, doc, positions in groups[:limit]:
             result = self.parts[k].result(doc, positions, len(notes), context, occ, copies)
             results.append({**result, "doc": global_doc})
-        return {"total": total, "files_total": files, "files_exact": exact, "results": results}
+        n_approx = 0
+        if approximate and files < limit:
+            exact_docs = {(k, doc) for _, _, _, _, k, doc, _ in groups}
+            approx_groups = []
+            for k, part in enumerate(self.parts):
+                exclude = {doc for kk, doc in exact_docs if kk == k}
+                approx_groups += [(q, sc, occ, cop, int(self.offsets[k] + doc), k, doc, pos, best)
+                                  for q, sc, occ, cop, doc, pos, best
+                                  in part.approximate_groups(notes, octave, transpose, exclude)]
+            approx_groups.sort(key=lambda g: (-g[1], g[4]))
+            n_approx = len(approx_groups)
+            for _, _, occ, copies, global_doc, k, doc, positions, best in approx_groups[: limit - files]:
+                result = self.parts[k].result(doc, positions, len(notes), context, occ, copies, best)
+                results.append({**result, "doc": global_doc})
+        return {"total": total, "files_total": files, "files_exact": exact,
+                "files_approximate": n_approx, "results": results}
 
 
 def open_database(db_dir):

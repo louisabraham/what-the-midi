@@ -1,72 +1,89 @@
 """Builds the search index from the melodies in data/store/melodies/.
 
-Each melody gets the best name among all the files that have it: the
-first source in sources.SOURCES, then the shortest path. The index also
-stores how many files have each melody (its copies): a melody with many
-copies is probably a well-known song.
+One index entry per group of melodies (see neardup.py; without
+store/neardup.npz, each melody is its own group):
+
+- melody: the melody of the group with the most copies, then the longest
+- name: the best path among all the files of the group: not a checksum,
+  then a file name with words (see _is_cryptic), then the first source in
+  sources.SOURCES, then the shortest. When all the paths are checksums,
+  the name is the title.
+- title: the GigaMIDI metadata ("Artist - Title", found by MD5), else the
+  title written in a file (its text events)
+- copies: the number of files of the group (a melody found in many files
+  is probably a well-known song); versions: the number of melodies
 """
 
 import re
 import shutil
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from whatthemidi.index import write_index  # noqa: E402
-
-# notes per index part: a part must stay under 2**31 notes (32-bit suffix arrays)
-PART_NOTES = 1_500_000_000
 from whatthemidi.midi import Melody, is_title  # noqa: E402
 
 from ingest import connect  # noqa: E402
+from metadata import display_title  # noqa: E402
 from sources import SOURCES  # noqa: E402
 
-
+# notes per index part: a part must stay under 2**31 notes (32-bit suffix arrays)
+PART_NOTES = 1_500_000_000
 HASH_NAME = re.compile(r"^[0-9a-f]{32,64}$", re.I)
+
+
+_EXTENSIONS = re.compile(r"(\.(mid|midi|kar|rmi))+$", re.I)
+
+
+def _stem(path):
+    """File name without its MIDI extensions ("a.mid.mid" -> "a")."""
+    return _EXTENSIONS.sub("", path.rsplit("/", 1)[-1])
 
 
 def _is_hash(path):
     """True for a file named by a checksum (Lakh full, Los Angeles...)."""
-    return bool(HASH_NAME.match(path.rsplit("/", 1)[-1].rsplit(".", 1)[0]))
+    return bool(HASH_NAME.match(_stem(path)))
 
 
-def best_names(db):
-    """{melody hash: (source, name, title, name is the title)} and
-    {melody hash: number of files}.
+def _is_cryptic(path):
+    """True for a file name that says little: fewer than 4 letters, or more
+    digits than letters ("47746575hnn (36385).mid", "s1003.mid")."""
+    stem = _stem(path)
+    letters = sum(c.isalpha() for c in stem)
+    return letters < 4 or sum(c.isdigit() for c in stem) > letters
 
-    The name is the path of a file with this melody: the first source in
-    sources.SOURCES, then the shortest path. Paths that are checksums come
-    last: when all the paths are checksums, the name is the title found
-    in the files. The title comes from the text events of the files.
-    """
+
+def file_names(db):
+    """For each melody hash: its best (rank, source, path), its best
+    (rank, title), and its number of files."""
     priority = {s.name: i for i, s in enumerate(SOURCES)}
     best, title, copies = {}, {}, Counter()
     rows = db.execute("""
-        SELECT melody, source, path, title FROM files WHERE melody IS NOT NULL
+        SELECT f.melody, f.source, f.path, f.title, m.title, m.artist
+        FROM files f LEFT JOIN metadata m ON m.md5 = f.md5 WHERE f.melody IS NOT NULL
         UNION ALL
-        SELECT f.melody, a.source, a.path, f.title FROM aliases a JOIN files f ON a.md5 = f.md5
+        SELECT f.melody, a.source, a.path, f.title, m.title, m.artist
+        FROM aliases a JOIN files f ON a.md5 = f.md5 LEFT JOIN metadata m ON m.md5 = f.md5
         WHERE f.melody IS NOT NULL
     """)
-    for key, source, path, file_title in rows:
+    for key, source, path, file_title, meta_title, meta_artist in rows:
         copies[key] += 1
-        if not is_title(file_title):  # the rules may be newer than the ingestion
-            file_title = None
-        rank = (_is_hash(path), priority.get(source, len(priority)), len(path), path)
+        p = priority.get(source, len(priority))
+        rank = (_is_hash(path), _is_cryptic(path), p, len(path), path)
         if key not in best or rank < best[key][0]:
-            best[key] = (rank, source, path, file_title)
-        if file_title:
-            t_rank = (priority.get(source, len(priority)), file_title)
-            if key not in title or t_rank < title[key]:
-                title[key] = t_rank
-    out = {}
-    for key, (rank, source, path, file_title) in best.items():
-        t = file_title or (title[key][1] if key in title else None)
-        from_title = bool(rank[0] and t)  # only checksum names: use the title
-        out[key] = (source, t.replace("/", "\u2215") if from_title else path, t, from_title)
-    return out, copies
+            best[key] = (rank, source, path)
+        candidates = []
+        if meta_title:
+            candidates.append(((0, p), display_title(meta_title, meta_artist)))
+        if is_title(file_title):  # the rules may be newer than the ingestion
+            candidates.append(((1, p), file_title))
+        for t_rank, t in candidates:
+            if key not in title or t_rank < title[key][0]:
+                title[key] = (t_rank, t)
+    return best, title, copies
 
 
 def _strip_common_dir(paths):
@@ -93,32 +110,59 @@ def load_shards(store: Path, sources):
                                            t_ticks[c:d], t_mspq[c:d])
 
 
+def load_groups(store: Path):
+    """{melody hash: group hash} from neardup.py, or {}."""
+    path = store / "neardup.npz"
+    if not path.exists():
+        return {}
+    with np.load(path) as z:
+        return dict(zip(z["keys"].tolist(), z["group"].tolist()))
+
+
 def build(store: Path, db_dir: Path, only=None, part_notes=PART_NOTES):
     present = {p.name.rsplit("-", 1)[0] for p in (store / "melodies").glob("*.npz")}
     sources = [s.name for s in SOURCES if s.name in present and (not only or s.name in only)]
     print("sources:", ", ".join(sources))
-    names, copies = best_names(connect(store))
+    best, title, copies = file_names(connect(store))
+    groups = load_groups(store)
 
-    keys, melodies = [], []
+    members = defaultdict(list)  # group -> [(key, Melody)]
     for key, melody in load_shards(store, sources):
-        keys.append(key)
+        members[groups.get(key, key)].append((key, melody))
+    n_melodies = sum(map(len, members.values()))
+
+    names, titles, doc_source, from_title, doc_copies, versions, melodies = [], [], [], [], [], [], []
+    for group in members.values():
+        keys = [k for k, _ in group]
+        # the melody: most copies, then the longest
+        _, melody = max(group, key=lambda km: (copies[km[0]], len(km[1])))
+        rank, source, path = min(best[k] for k in keys)
+        t = min((title[k] for k in keys if k in title), default=(None, None))[1]
+        use_title = bool(rank[0] and t)  # only checksum paths: the title is the name
+        names.append(t.replace("/", "∕") if use_title else path)
+        titles.append(t)
+        doc_source.append(source)
+        from_title.append(use_title)
+        doc_copies.append(sum(copies[k] for k in keys))
+        versions.append(len(keys))
         melodies.append(melody)
-    print(f"{len(keys):,} melodies, {sum(map(len, melodies)):,} notes")
+    del members
+    print(f"{n_melodies:,} melodies in {len(melodies):,} groups, "
+          f"{sum(map(len, melodies)):,} notes to index")
 
     # names, without the top directory common to all the files of a source
-    doc_source = [names[k][0] for k in keys]
-    paths = [names[k][1] for k in keys]
-    titles = [names[k][2] for k in keys]
-    from_title = [names[k][3] for k in keys]
     all_sources = sorted(set(doc_source), key=[s.name for s in SOURCES].index)
-    for source in all_sources:
-        idx = [i for i, s in enumerate(doc_source) if s == source and not from_title[i]]
-        for i, p in zip(idx, _strip_common_dir([paths[i] for i in idx])):
-            paths[i] = p
+    by_source = defaultdict(list)
+    for i, s in enumerate(doc_source):
+        if not from_title[i]:
+            by_source[s].append(i)
+    for idx in by_source.values():
+        for i, p in zip(idx, _strip_common_dir([names[i] for i in idx])):
+            names[i] = p
 
     source_index = {s: i for i, s in enumerate(all_sources)}
     doc_sources = [source_index[s] for s in doc_source]
-    doc_copies = [copies[k] for k in keys]
+    extra = dict(sources=all_sources)
 
     bounds, size = [0], 0
     for i, m in enumerate(melodies):
@@ -127,19 +171,19 @@ def build(store: Path, db_dir: Path, only=None, part_notes=PART_NOTES):
             size = 0
         size += len(m) + 1
     bounds.append(len(melodies))
-    if len(bounds) == 2:
-        return write_index(db_dir, paths, melodies, sources=all_sources,
-                           doc_sources=doc_sources, doc_copies=doc_copies, titles=titles)
 
+    def part(path, a, b):
+        return write_index(path, names[a:b], melodies[a:b], doc_sources=doc_sources[a:b],
+                           doc_copies=doc_copies[a:b], titles=titles[a:b],
+                           doc_versions=versions[a:b], **extra)
+
+    if len(bounds) == 2:
+        return part(db_dir, 0, len(melodies))
     print(f"{len(bounds) - 1} parts")
     tmp = db_dir.with_name(db_dir.name + ".parts")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
-    metas = []
-    for k, (a, b) in enumerate(zip(bounds, bounds[1:])):
-        metas.append(write_index(tmp / f"part-{k:03d}", paths[a:b], melodies[a:b],
-                                 sources=all_sources, doc_sources=doc_sources[a:b],
-                                 doc_copies=doc_copies[a:b], titles=titles[a:b]))
+    metas = [part(tmp / f"part-{k:03d}", a, b) for k, (a, b) in enumerate(zip(bounds, bounds[1:]))]
     shutil.rmtree(db_dir, ignore_errors=True)
     tmp.rename(db_dir)
     return {"parts": len(metas), "files": sum(m["files"] for m in metas),
