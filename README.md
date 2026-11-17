@@ -15,17 +15,22 @@ Requirements: [uv](https://docs.astral.sh/uv/) and Node.js.
 uv sync
 (cd web && npm install && npm run build)
 
+# index a directory of MIDI files
 uv run what-the-midi index path/to/midi/files data/db
+
+# or download the public MIDI collections, remove duplicates, and index them
+uv run collect/run.py all
+uv run collect/run.py build data/db
+
 uv run what-the-midi serve data/db          # http://127.0.0.1:8765
 uv run what-the-midi search data/db "E5 D#5 E5 D#5 E5 B4 D5 C5 A4"
 uv run what-the-midi search data/db "E E F G G F E D" --transpose
 ```
 
-MIDI collections:
-
-- [Lakh MIDI `clean_midi`](https://colinraffel.com/projects/lmd/):
-  17k files named `Artist/Title.mid` (234 MB download).
-- The 130k files of https://redd.it/3ajwe4.
+[`collect/`](collect/README.md) downloads 9 public collections (the 130k
+files of https://redd.it/3ajwe4, Lakh MIDI, Los Angeles MIDI, GigaMIDI…),
+removes the files with the same bytes or the same melody, and builds
+the index.
 
 Frontend development: run `serve` on port 8765, then `npm run dev` in
 `web/`. Vite sends `/api` requests to the server.
@@ -37,9 +42,11 @@ Tests: `uv run pytest`.
 ### Melody extraction
 
 [symusic](https://github.com/Yikai-Liao/symusic) (a C++ MIDI parser)
-reads the files. We keep only the melody: the highest note at each note
-onset, over all the tracks except drums. Python processes parse the files
-in parallel.
+reads the files. When symusic refuses a file (for example a data byte
+above 127), [mido](https://github.com/mido/mido) reads it and clips the
+bad bytes. We keep only the melody: the highest note at each note onset,
+over all the tracks except drums. Python processes parse the files in
+parallel.
 
 ### Index
 
@@ -61,12 +68,20 @@ never continues from one file into the next.
 suffix array for each text (to learn about suffix arrays:
 https://louisabraham.github.io/notebooks/suffix_arrays.html).
 
+The index also stores the tick of each note, and the tempo changes of
+each file to convert ticks to seconds. That is 24 bytes per note. The
+suffix arrays use 32-bit integers, so one index holds at most 2^31
+notes: a larger collection is split in parts (`part-000/`, `part-001/`…)
+that the server searches one after the other.
+
 ### Search
 
 `sa_search` finds the range of suffixes that start with the query. We
 group the first 100,000 matches by file, and return the files with the
-most matches first. The server returns at most 50 files and accepts at
-most 64 notes per query.
+most matches first. When 2 files have the same number of matches, the
+file whose melody has more copies in the collections comes first (a
+melody found in many files is probably a well-known song). The server
+returns at most 50 files and accepts at most 64 notes per query.
 
 ### Memory
 
@@ -102,7 +117,8 @@ without an octave number goes to the octave closest to the previous note.
   melody holds a note and the accompaniment plays a new one, the
   accompaniment note goes into the melody, and a long query does not
   match. Use shorter queries.
-- There is no ranking other than the number of matches in each file.
+- The ranking uses only the number of matches in each file and the
+  number of copies of its melody.
 
 ## TODO
 

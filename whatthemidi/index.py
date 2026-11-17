@@ -19,6 +19,7 @@ operating system reads only the pages that a search touches.
 
 import json
 import os
+import shutil
 import time
 from multiprocessing import Pool
 from pathlib import Path
@@ -27,11 +28,11 @@ import numpy as np
 from pydivsufsort import divsufsort, sa_search
 from tqdm import tqdm
 
-from .midi import parse_midi
+from .midi import parse_midi, ticks_to_seconds
 
 MODES = ("exact", "octave", "transpose", "transpose_octave")
 SEP = 255
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 MIDI_SUFFIXES = {".mid", ".midi", ".kar", ".rmi"}
 
 MAX_QUERY_NOTES = 64
@@ -97,10 +98,7 @@ def _parse_worker(item):
 
 def build(midi_dir, db_dir, jobs=None, progress=True):
     """Parses all the MIDI files under midi_dir and writes the index to db_dir."""
-    db_dir = Path(db_dir)
-    db_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()
-
     files = sorted(find_midi_files(midi_dir))
     melodies, failed = {}, {}
     with Pool(jobs) as pool:
@@ -113,9 +111,38 @@ def build(midi_dir, db_dir, jobs=None, progress=True):
             elif len(melody):
                 melodies[name] = melody
     names = sorted(melodies)
-    parsed = time.time()
+    meta = write_index(
+        db_dir,
+        names,
+        (melodies.pop(n) for n in names),
+        progress=progress,
+        extra_meta={"failed": len(failed), "parse_seconds": round(time.time() - started, 1)},
+    )
+    (Path(db_dir) / "failed.json").write_text(json.dumps(failed, ensure_ascii=False, indent=1))
+    return meta
 
-    sizes = np.array([len(melodies[n]) + 1 for n in names], dtype=np.int64)
+
+def write_index(db_dir, names, melodies, sources=None, doc_sources=None,
+                doc_copies=None, titles=None, extra_meta=None, progress=True):
+    """Writes the index of the melodies (an iterable of Melody, in the
+    order of names) to db_dir.
+
+    sources: names of the collections; doc_sources: index in sources of
+    the collection of each melody; doc_copies: number of files with each
+    melody (more copies rank first when the number of matches is equal);
+    titles: title of each file from its text events, or None.
+
+    The index is written to a new directory that then replaces db_dir, so
+    a server that has the old index open keeps working.
+    """
+    started = time.time()
+    db_dir = Path(db_dir)
+    tmp = db_dir.with_name(db_dir.name + ".tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+
+    melodies = list(melodies)
+    sizes = np.array([len(m) + 1 for m in melodies], dtype=np.int64)
     doc_starts = np.r_[0, np.cumsum(sizes)].astype(np.int64)
     total = int(doc_starts[-1])
     if total >= 2**31 - 1:
@@ -123,40 +150,69 @@ def build(midi_dir, db_dir, jobs=None, progress=True):
 
     notes = np.full(total, -1, dtype=np.int16)
     ticks = np.zeros(total, dtype=np.uint32)
-    seconds = np.zeros(total, dtype=np.float32)
     ppq = np.zeros(len(names), dtype=np.uint32)
-    for i, name in enumerate(names):
-        m = melodies.pop(name)
+    tempo_starts = np.r_[0, np.cumsum([len(m.tempo_ticks) for m in melodies])].astype(np.int64)
+    tempo_ticks = np.zeros(tempo_starts[-1], dtype=np.uint32)
+    tempo_mspq = np.zeros(tempo_starts[-1], dtype=np.uint32)
+    for i, m in enumerate(melodies):
         a, b = doc_starts[i], doc_starts[i + 1] - 1
         notes[a:b] = m.pitches
         ticks[a:b] = m.ticks
-        seconds[a:b] = m.seconds
         ppq[i] = m.ppq
+        c, d = tempo_starts[i], tempo_starts[i + 1]
+        tempo_ticks[c:d] = m.tempo_ticks
+        tempo_mspq[c:d] = m.tempo_mspq
+    del melodies
 
     for mode in tqdm(MODES, desc="suffix arrays", disable=not progress):
         text = encode(notes, mode)
         sa = divsufsort(text)
-        np.save(db_dir / f"text_{mode}.npy", text)
-        np.save(db_dir / f"sa_{mode}.npy", sa.astype(np.int32, copy=False))
-    np.save(db_dir / "ticks.npy", ticks)
-    np.save(db_dir / "seconds.npy", seconds)
-    np.save(db_dir / "doc_starts.npy", doc_starts)
-    np.save(db_dir / "ppq.npy", ppq)
-    (db_dir / "names.json").write_text(json.dumps(names, ensure_ascii=False))
-    (db_dir / "failed.json").write_text(json.dumps(failed, ensure_ascii=False, indent=1))
+        np.save(tmp / f"text_{mode}.npy", text)
+        np.save(tmp / f"sa_{mode}.npy", sa.astype(np.int32, copy=False))
+        del text, sa
+    np.save(tmp / "ticks.npy", ticks)
+    np.save(tmp / "tempo_starts.npy", tempo_starts)
+    np.save(tmp / "tempo_ticks.npy", tempo_ticks)
+    np.save(tmp / "tempo_mspq.npy", tempo_mspq)
+    np.save(tmp / "doc_starts.npy", doc_starts)
+    np.save(tmp / "ppq.npy", ppq)
+    (tmp / "names.json").write_text(json.dumps(list(names), ensure_ascii=False))
+    if sources is not None:
+        (tmp / "sources.json").write_text(json.dumps(list(sources)))
+        np.save(tmp / "doc_sources.npy", np.asarray(doc_sources, dtype=np.uint16))
+    if doc_copies is not None:
+        np.save(tmp / "doc_copies.npy", np.asarray(doc_copies, dtype=np.uint32))
+    if titles is not None:
+        (tmp / "titles.json").write_text(json.dumps(list(titles), ensure_ascii=False))
     meta = {
         "version": FORMAT_VERSION,
         "files": len(names),
         "notes": total - len(names),
-        "failed": len(failed),
-        "parse_seconds": round(parsed - started, 1),
-        "index_seconds": round(time.time() - parsed, 1),
+        **(extra_meta or {}),
+        "index_seconds": round(time.time() - started, 1),
     }
-    (db_dir / "meta.json").write_text(json.dumps(meta, indent=1))
+    (tmp / "meta.json").write_text(json.dumps(meta, indent=1))
+
+    old = db_dir.with_name(db_dir.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if db_dir.exists():
+        db_dir.rename(old)
+    tmp.rename(db_dir)
+    shutil.rmtree(old, ignore_errors=True)
     return meta
 
 
+def _check_query(notes, limit):
+    if not notes:
+        raise ValueError("empty query")
+    if len(notes) > MAX_QUERY_NOTES:
+        raise ValueError(f"at most {MAX_QUERY_NOTES} notes")
+    return max(1, min(int(limit), MAX_LIMIT))
+
+
 class Database:
+    """One index: at most 2**31 notes (32-bit suffix arrays)."""
+
     def __init__(self, db_dir):
         db_dir = Path(db_dir)
         self.meta = json.loads((db_dir / "meta.json").read_text())
@@ -172,9 +228,31 @@ class Database:
         self.texts = {mode: load(f"text_{mode}") for mode in MODES}
         self.sas = {mode: load(f"sa_{mode}") for mode in MODES}
         self.ticks = load("ticks")
-        self.seconds = load("seconds")
+        self.tempo_starts = np.load(db_dir / "tempo_starts.npy")
+        self.tempo_ticks = load("tempo_ticks")
+        self.tempo_mspq = load("tempo_mspq")
         self.doc_starts = np.load(db_dir / "doc_starts.npy")
         self.ppq = np.load(db_dir / "ppq.npy")
+        self.sources, self.doc_sources = None, None
+        if (db_dir / "sources.json").exists():
+            self.sources = json.loads((db_dir / "sources.json").read_text())
+            self.doc_sources = np.load(db_dir / "doc_sources.npy")
+        self.copies = None
+        if (db_dir / "doc_copies.npy").exists():
+            self.copies = np.load(db_dir / "doc_copies.npy")
+        self.titles = None
+        if (db_dir / "titles.json").exists():
+            self.titles = json.loads((db_dir / "titles.json").read_text())
+
+    def source(self, doc: int):
+        """Name of the collection of a file, or None."""
+        return None if self.sources is None else self.sources[self.doc_sources[doc]]
+
+    def seconds(self, doc: int, positions) -> np.ndarray:
+        """Time in seconds of notes of a file (positions local to the file)."""
+        c, d = self.tempo_starts[doc], self.tempo_starts[doc + 1]
+        ticks = self.ticks[self.doc_starts[doc] + np.asarray(positions, dtype=np.int64)]
+        return ticks_to_seconds(ticks, self.tempo_ticks[c:d], self.tempo_mspq[c:d], int(self.ppq[doc]))
 
     def doc_length(self, doc: int) -> int:
         return int(self.doc_starts[doc + 1] - self.doc_starts[doc] - 1)
@@ -192,48 +270,59 @@ class Database:
         scanned = self.sas[mode][left : left + min(count, SCAN_CAP)]
         return count, np.asarray(scanned, dtype=np.int64)
 
-    def search(self, notes, octave=False, transpose=False, limit=10, context=8):
-        """Searches a melody and groups the matches by file.
+    def groups(self, notes, octave=False, transpose=False, limit=10):
+        """Matches grouped by file, for the `limit` best files.
 
-        Files with the most matches come first. At most `limit` files.
+        Returns (number of matches, number of files, [(occurrences,
+        copies, doc, positions in the file), ...]). Files with the most
+        matches come first, then files with the most copies.
         """
-        if not notes:
-            raise ValueError("empty query")
-        if len(notes) > MAX_QUERY_NOTES:
-            raise ValueError(f"at most {MAX_QUERY_NOTES} notes")
-        limit = max(1, min(int(limit), MAX_LIMIT))
         count, positions = self.find(notes, octave, transpose)
         if count == 0:
-            return {"total": 0, "files_total": 0, "files_exact": True, "results": []}
-
+            return 0, 0, []
         docs = np.searchsorted(self.doc_starts, positions, side="right") - 1
         order = np.lexsort((positions, docs))
         docs, positions = docs[order], positions[order]
         firsts = np.flatnonzero(np.r_[True, docs[1:] != docs[:-1]])
         counts = np.diff(np.r_[firsts, len(docs)])
-        best = np.lexsort((docs[firsts], -counts))[:limit]
+        uniq = docs[firsts]
+        copies = self.copies[uniq].astype(np.int64) if self.copies is not None else np.ones_like(uniq)
+        best = np.lexsort((uniq, -copies, -counts))[:limit]
+        return int(count), len(firsts), [
+            (int(counts[i]), int(copies[i]), int(uniq[i]),
+             positions[firsts[i] : firsts[i] + counts[i]] - self.doc_starts[uniq[i]])
+            for i in best
+        ]
 
-        results = []
-        for i in best:
-            doc = int(docs[firsts[i]])
-            local = positions[firsts[i] : firsts[i] + counts[i]] - self.doc_starts[doc]
-            shown = local[:MAX_POSITIONS]
-            seconds = self.seconds[self.doc_starts[doc] + shown]
-            results.append({
-                "doc": doc,
-                "file": self.names[doc],
-                "occurrences": int(counts[i]),
-                "positions": [
-                    {"pos": int(p), "sec": round(float(s), 2)}
-                    for p, s in zip(shown, seconds)
-                ],
-                **self.context(doc, int(local[0]), len(notes), context),
-            })
+    def result(self, doc, positions, length, context, occurrences, copies):
+        """One file of the search result (positions local to the file)."""
+        shown = positions[:MAX_POSITIONS]
         return {
-            "total": int(count),
-            "files_total": len(firsts),
+            "doc": doc,
+            "file": self.names[doc],
+            "title": self.titles[doc] if self.titles else None,
+            "source": self.source(doc),
+            "copies": copies,
+            "occurrences": occurrences,
+            "positions": [
+                {"pos": int(p), "sec": round(float(s), 2)}
+                for p, s in zip(shown, self.seconds(doc, shown))
+            ],
+            **self.context(doc, int(positions[0]), length, context),
+        }
+
+    def search(self, notes, octave=False, transpose=False, limit=10, context=8):
+        """Searches a melody and groups the matches by file (at most `limit` files)."""
+        limit = _check_query(notes, limit)
+        count, files, groups = self.groups(notes, octave, transpose, limit)
+        return {
+            "total": count,
+            "files_total": files,
             "files_exact": count <= SCAN_CAP,
-            "results": results,
+            "results": [
+                self.result(doc, positions, len(notes), context, occurrences, copies)
+                for occurrences, copies, doc, positions in groups
+            ],
         }
 
     def context(self, doc: int, pos: int, length: int, context: int = 8):
@@ -256,7 +345,77 @@ class Database:
                 for p, t, s in zip(
                     self.texts["exact"][a + start : a + end],
                     self.ticks[a + start : a + end],
-                    self.seconds[a + start : a + end],
+                    self.seconds(doc, np.arange(start, end)),
                 )
             ],
         }
+
+
+class _Names:
+    """The file names of several parts, as one list."""
+
+    def __init__(self, parts, offsets):
+        self.parts, self.offsets = parts, offsets
+
+    def __len__(self):
+        return int(self.offsets[-1])
+
+    def __getitem__(self, doc):
+        k = int(np.searchsorted(self.offsets, doc, side="right") - 1)
+        return self.parts[k].names[doc - self.offsets[k]]
+
+
+class MultiDatabase:
+    """An index in several parts (db_dir/part-NNN), searched as one.
+    File numbers continue from one part to the next."""
+
+    def __init__(self, parts):
+        self.parts = parts
+        self.offsets = np.r_[0, np.cumsum([len(p.names) for p in parts])]
+        self.names = _Names(parts, self.offsets)
+        self.meta = {
+            "version": FORMAT_VERSION,
+            "parts": len(parts),
+            "files": sum(p.meta["files"] for p in parts),
+            "notes": sum(p.meta["notes"] for p in parts),
+        }
+
+    def _locate(self, doc):
+        if not 0 <= doc < len(self.names):
+            raise ValueError("unknown file")
+        k = int(np.searchsorted(self.offsets, doc, side="right") - 1)
+        return self.parts[k], int(doc - self.offsets[k])
+
+    def source(self, doc):
+        part, local = self._locate(doc)
+        return part.source(local)
+
+    def context(self, doc, pos, length, context=8):
+        part, local = self._locate(doc)
+        return part.context(local, pos, length, context)
+
+    def search(self, notes, octave=False, transpose=False, limit=10, context=8):
+        limit = _check_query(notes, limit)
+        total, files, exact, groups = 0, 0, True, []
+        for k, part in enumerate(self.parts):
+            count, n_files, part_groups = part.groups(notes, octave, transpose, limit)
+            total, files, exact = total + count, files + n_files, exact and count <= SCAN_CAP
+            groups += [(occ, copies, int(self.offsets[k] + doc), k, doc, positions)
+                       for occ, copies, doc, positions in part_groups]
+        groups.sort(key=lambda g: (-g[0], -g[1], g[2]))
+        results = []
+        for occ, copies, global_doc, k, doc, positions in groups[:limit]:
+            result = self.parts[k].result(doc, positions, len(notes), context, occ, copies)
+            results.append({**result, "doc": global_doc})
+        return {"total": total, "files_total": files, "files_exact": exact, "results": results}
+
+
+def open_database(db_dir):
+    """Database or MultiDatabase, from what db_dir contains."""
+    db_dir = Path(db_dir)
+    if (db_dir / "meta.json").exists():
+        return Database(db_dir)
+    parts = sorted(db_dir.glob("part-*"))
+    if not parts:
+        raise FileNotFoundError(f"{db_dir}: no index (meta.json or part-NNN/)")
+    return MultiDatabase([Database(p) for p in parts])

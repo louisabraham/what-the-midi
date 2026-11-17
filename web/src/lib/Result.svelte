@@ -34,7 +34,12 @@
   <header>
     <div class="name">
       <h3>{name.title}</h3>
-      {#if name.folder}<p>{name.folder}</p>{/if}
+      {#if result.title && result.title !== name.title}<p class="embedded" title="Title written in the MIDI file">“{result.title}”</p>{/if}
+      <p>
+        {#if name.folder}{name.folder}{/if}
+        {#if result.source}<span class="tag" title="Collection">{result.source}</span>{/if}
+        {#if result.copies > 1}<span class="tag" title="Number of files with this melody">{result.copies} copies</span>{/if}
+      </p>
     </div>
     <button type="button" class="play" onclick={play} aria-label={playing ? 'Stop' : 'Play'}>
       {playing ? '■' : '▶'}
@@ -80,6 +85,21 @@
     margin: 2px 0 0;
     color: var(--muted);
     font-size: 0.85rem;
+  }
+  .name p.embedded {
+    color: var(--text);
+    font-style: italic;
+  }
+  .tag {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.75rem;
+  }
+  .name p .tag:first-child {
+    margin-left: 0;
   }
   .play {
     flex: none;

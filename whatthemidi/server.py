@@ -7,10 +7,10 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .index import MAX_CONTEXT, MAX_LIMIT, MAX_QUERY_NOTES, MODES, Database
+from .index import MAX_CONTEXT, MAX_LIMIT, MAX_QUERY_NOTES, MODES, Database, MultiDatabase, open_database
 from .notes import NoteError, midi_to_name, parse_query
 
-DB = web.AppKey("db", Database)
+DB = web.AppKey("db", Database | MultiDatabase)
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "web" / "dist"
 
 
@@ -80,7 +80,7 @@ async def context(request):
         result = await _run(db.context, doc, pos, length, ctx)
     except ValueError as e:
         return _error(str(e))
-    return web.json_response({"doc": doc, "file": db.names[doc], **result})
+    return web.json_response({"doc": doc, "file": db.names[doc], "source": db.source(doc), **result})
 
 
 def make_app(db: Database, static_dir=DEFAULT_STATIC) -> web.Application:
@@ -117,4 +117,4 @@ async def _file(path, request):
 
 
 def serve(db_dir, host="127.0.0.1", port=8765, static_dir=DEFAULT_STATIC):
-    web.run_app(make_app(Database(db_dir), static_dir), host=host, port=port)
+    web.run_app(make_app(open_database(db_dir), static_dir), host=host, port=port)

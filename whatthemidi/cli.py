@@ -38,12 +38,12 @@ def main(argv=None):
         print(json.dumps(meta, indent=1))
 
     elif args.command == "search":
-        from .index import Database
+        from .index import open_database
         from .notes import NoteError, midi_to_name, parse_query
 
         try:
             notes = parse_query(args.query)
-            result = Database(args.db_dir).search(
+            result = open_database(args.db_dir).search(
                 notes, args.octave, args.transpose, args.limit
             )
         except (NoteError, ValueError) as e:
