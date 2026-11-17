@@ -26,7 +26,7 @@ def main(argv=None):
     p = sub.add_parser("serve", help="run the web app")
     p.add_argument("db_dir")
     p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8080)
+    p.add_argument("--port", type=int, default=8765)
     p.add_argument("--static", default=None, help="frontend directory (default: web/dist)")
 
     args = parser.parse_args(argv)

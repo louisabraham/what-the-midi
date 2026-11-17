@@ -116,5 +116,5 @@ async def _file(path, request):
     return web.FileResponse(path)
 
 
-def serve(db_dir, host="127.0.0.1", port=8080, static_dir=DEFAULT_STATIC):
+def serve(db_dir, host="127.0.0.1", port=8765, static_dir=DEFAULT_STATIC):
     web.run_app(make_app(Database(db_dir), static_dir), host=host, port=port)

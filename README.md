@@ -16,7 +16,7 @@ uv sync
 (cd web && npm install && npm run build)
 
 uv run what-the-midi index path/to/midi/files data/db
-uv run what-the-midi serve data/db          # http://127.0.0.1:8080
+uv run what-the-midi serve data/db          # http://127.0.0.1:8765
 uv run what-the-midi search data/db "E5 D#5 E5 D#5 E5 B4 D5 C5 A4"
 uv run what-the-midi search data/db "E E F G G F E D" --transpose
 ```
@@ -27,7 +27,7 @@ MIDI collections:
   17k files named `Artist/Title.mid` (234 MB download).
 - The 130k files of https://redd.it/3ajwe4.
 
-Frontend development: run `serve` on port 8080, then `npm run dev` in
+Frontend development: run `serve` on port 8765, then `npm run dev` in
 `web/`. Vite sends `/api` requests to the server.
 
 Tests: `uv run pytest`.
