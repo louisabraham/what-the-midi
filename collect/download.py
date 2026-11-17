@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -76,11 +77,17 @@ def download(source: Source, archives_dir: Path):
             raise SystemExit(f"not enough disk space for {name}: need {need / 1e9:.1f} GB, "
                              f"free {free / 1e9:.1f} GB (margin {FREE_SPACE_MARGIN / 1e9:.0f} GB)")
         print(f"  {name} ({(size or 0) / 1e6:.0f} MB)", flush=True)
-        cmd = ["curl", "-L", "--fail", "--retry", "5", "--retry-delay", "5",
+        cmd = ["curl", "-L", "--fail", "--retry", "5", "--retry-delay", "5", "--retry-all-errors",
                "-C", "-", "-sS", "-o", str(dest), url]
         if token:
             cmd[1:1] = ["-H", f"Authorization: Bearer {token}"]
-        subprocess.run(cmd, check=True)
+        for attempt in range(1, 21):  # each attempt resumes where the last one stopped
+            if subprocess.run(cmd).returncode == 0:
+                break
+            print(f"  {name}: download interrupted (attempt {attempt}), resuming", flush=True)
+            time.sleep(10)
+        else:
+            raise SystemExit(f"{name}: download failed 20 times")
         if size is not None and dest.stat().st_size != size:
             raise SystemExit(f"{name}: size {dest.stat().st_size}, expected {size}")
     return [dest_dir / name for _, name, _ in files]

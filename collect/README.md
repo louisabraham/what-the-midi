@@ -40,8 +40,14 @@ Melodies with fewer than 8 notes are not indexed.
 
 Each melody gets the best name among all its files: the first source in
 `sources.py` (sources with artist and title names come first), then the
-shortest path. The index stores the number of files with each melody
-(its copies). When 2 files have the same number of matches, the file with
+shortest path. Several collections name their files by checksum
+(`MIDIs/2/263c269c….mid`). For those, the name is the title written in
+the MIDI file, when there is one: the name of the first track (the
+sequence name), a text event of the first track, or a `Title: …` text.
+Generic names ("Piano", "Track 1") and software credits are skipped. The
+result cards show this title too.
+
+The index stores the number of files with each melody (its copies). When 2 files have the same number of matches, the file with
 more copies comes first: a melody found in many files is probably a
 well-known song.
 
@@ -50,7 +56,7 @@ well-known song.
 ```
 data/archives/<source>/...         downloaded archives
 data/store/catalog.sqlite          files, aliases, melodies, sources tables
-data/store/melodies/<source>-NNN.npz   melodies to index (pitches, ticks, seconds)
+data/store/melodies/<source>-NNN.npz   melodies to index (pitches, ticks, tempo changes)
 data/db-all/                       the index
 ```
 
