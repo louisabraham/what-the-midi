@@ -28,7 +28,7 @@ import numpy as np
 from pydivsufsort import divsufsort, sa_search
 from tqdm import tqdm
 
-from .midi import parse_midi, ticks_to_seconds
+from .midi import is_title, parse_midi, ticks_to_seconds
 
 MODES = ("exact", "octave", "transpose", "transpose_octave")
 SEP = 255
@@ -273,9 +273,12 @@ class Database:
     def groups(self, notes, octave=False, transpose=False, limit=10):
         """Matches grouped by file, for the `limit` best files.
 
-        Returns (number of matches, number of files, [(occurrences,
-        copies, doc, positions in the file), ...]). Files with the most
-        matches come first, then files with the most copies.
+        Returns (number of matches, number of files, [(score,
+        occurrences, copies, doc, positions in the file), ...]), best
+        score first: log2(1 + occurrences) + log2(copies). A melody that
+        many files have is probably a well-known song; a file that repeats
+        the query many times is often a loop or an exercise, so the number
+        of occurrences counts less and less.
         """
         count, positions = self.find(notes, octave, transpose)
         if count == 0:
@@ -287,9 +290,10 @@ class Database:
         counts = np.diff(np.r_[firsts, len(docs)])
         uniq = docs[firsts]
         copies = self.copies[uniq].astype(np.int64) if self.copies is not None else np.ones_like(uniq)
-        best = np.lexsort((uniq, -copies, -counts))[:limit]
+        score = np.log2(1 + counts) + np.log2(np.maximum(copies, 1))
+        best = np.lexsort((uniq, -score))[:limit]
         return int(count), len(firsts), [
-            (int(counts[i]), int(copies[i]), int(uniq[i]),
+            (float(score[i]), int(counts[i]), int(copies[i]), int(uniq[i]),
              positions[firsts[i] : firsts[i] + counts[i]] - self.doc_starts[uniq[i]])
             for i in best
         ]
@@ -300,7 +304,8 @@ class Database:
         return {
             "doc": doc,
             "file": self.names[doc],
-            "title": self.titles[doc] if self.titles else None,
+            # the rules for titles may be newer than the index
+            "title": self.titles[doc] if self.titles and is_title(self.titles[doc]) else None,
             "source": self.source(doc),
             "copies": copies,
             "occurrences": occurrences,
@@ -321,7 +326,7 @@ class Database:
             "files_exact": count <= SCAN_CAP,
             "results": [
                 self.result(doc, positions, len(notes), context, occurrences, copies)
-                for occurrences, copies, doc, positions in groups
+                for _, occurrences, copies, doc, positions in groups
             ],
         }
 
@@ -400,11 +405,11 @@ class MultiDatabase:
         for k, part in enumerate(self.parts):
             count, n_files, part_groups = part.groups(notes, octave, transpose, limit)
             total, files, exact = total + count, files + n_files, exact and count <= SCAN_CAP
-            groups += [(occ, copies, int(self.offsets[k] + doc), k, doc, positions)
-                       for occ, copies, doc, positions in part_groups]
-        groups.sort(key=lambda g: (-g[0], -g[1], g[2]))
+            groups += [(score, occ, copies, int(self.offsets[k] + doc), k, doc, positions)
+                       for score, occ, copies, doc, positions in part_groups]
+        groups.sort(key=lambda g: (-g[0], g[3]))
         results = []
-        for occ, copies, global_doc, k, doc, positions in groups[:limit]:
+        for _, occ, copies, global_doc, k, doc, positions in groups[:limit]:
             result = self.parts[k].result(doc, positions, len(notes), context, occ, copies)
             results.append({**result, "doc": global_doc})
         return {"total": total, "files_total": files, "files_exact": exact, "results": results}

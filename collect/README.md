@@ -51,6 +51,24 @@ The index stores the number of files with each melody (its copies). When 2 files
 more copies comes first: a melody found in many files is probably a
 well-known song.
 
+## Results (November 2026)
+
+| Source | Files | Same bytes | Same melody | < 8 notes | Errors | New melodies | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| lakh_clean | 17,243 | 0 | 2,985 | 6 | 77 | 14,175 | 24 M |
+| midiman | 127,693 | 27,181 | 15,232 | 677 | 405 | 84,198 | 91 M |
+| magic_of_midi | 168,561 | 114,643 | 9,641 | 586 | 235 | 43,456 | 43 M |
+| lakh_full | 177,640 | 141,318 | 15,083 | 28 | 203 | 21,008 | 39 M |
+| bread | 943,109 | 563,000 | 113,085 | 6,630 | 480 | 259,914 | 290 M |
+| los_angeles | 404,715 | 281,939 | 4,582 | 88 | 145 | 117,961 | 157 M |
+| monster | 2,335,783 | 90,444 | 965,583 | 364,591 | 59 | 915,106 | 373 M |
+| sourdough | 4,979,331 | 598,662 | 843,087 | 697,635 | 1,901 | 2,838,046 | 886 M |
+| **total** | **9,254,075** | | | | | **4,293,864** | **1.9 G** |
+
+Each row counts the duplicates of the rows above it (bread was ingested
+before los_angeles). GigaMIDI is not included: its access form needs the
+user's legal name and an agreement to research-only use.
+
 ## Data layout
 
 ```

@@ -140,7 +140,7 @@ def parse_midi(path) -> Melody:
 _GENERIC = re.compile(
     r"^(track|tr|trk|tk|untitled|sequence|seq|song|title|new song|piano|grand piano|bass|"
     r"drums?|percussion|guitar|melody|strings?|vocals?|voice|lead|staff|instrument|channel|"
-    r"ch|part|midi|general midi|gm|xg|gs|tempo|meta|conductor|copyright|unnamed|noname|"
+    r"ch|part|midi|general midi|gm|xg|gs|tempo|meta|conductor|copyright|unnamed|noname|new track|"
     r"system|setup|reset|\W*)\s*[-#:.]?\s*\d*$",
     re.I,
 )
@@ -152,6 +152,46 @@ _NOT_TITLE = re.compile(
 )
 _TITLE_LABEL = re.compile(r"^(title|titolo|titre|titel|titulo|song|songname|name)\s*[:=]\s*(.{3,})$", re.I)
 _MAX_EVENTS = 64  # events read at the start of each track
+
+# General MIDI instrument names, and track names that tools write in every file
+_GM = """acoustic grand piano|bright acoustic piano|electric grand piano|honky-tonk piano|
+electric piano 1|electric piano 2|harpsichord|clavinet|celesta|glockenspiel|music box|vibraphone|
+marimba|xylophone|tubular bells|dulcimer|drawbar organ|percussive organ|rock organ|church organ|
+reed organ|accordion|harmonica|tango accordion|acoustic guitar (nylon)|acoustic guitar (steel)|
+electric guitar (jazz)|electric guitar (clean)|electric guitar (muted)|overdriven guitar|
+distortion guitar|guitar harmonics|acoustic bass|electric bass (finger)|electric bass (pick)|
+fretless bass|slap bass 1|slap bass 2|synth bass 1|synth bass 2|violin|viola|cello|contrabass|
+tremolo strings|pizzicato strings|orchestral harp|timpani|string ensemble 1|string ensemble 2|
+synth strings 1|synth strings 2|choir aahs|voice oohs|synth choir|orchestra hit|trumpet|trombone|
+tuba|muted trumpet|french horn|brass section|synth brass 1|synth brass 2|soprano sax|alto sax|
+tenor sax|baritone sax|oboe|english horn|bassoon|clarinet|piccolo|flute|recorder|pan flute|
+blown bottle|shakuhachi|whistle|ocarina|lead 1 (square)|lead 2 (sawtooth)|lead 3 (calliope)|
+lead 4 (chiff)|lead 5 (charang)|lead 6 (voice)|lead 7 (fifths)|lead 8 (bass + lead)|pad 1 (new age)|
+pad 2 (warm)|pad 3 (polysynth)|pad 4 (choir)|pad 5 (bowed)|pad 6 (metallic)|pad 7 (halo)|
+pad 8 (sweep)|fx 1 (rain)|fx 2 (soundtrack)|fx 3 (crystal)|fx 4 (atmosphere)|fx 5 (brightness)|
+fx 6 (goblins)|fx 7 (echoes)|fx 8 (sci-fi)|sitar|banjo|shamisen|koto|kalimba|bagpipe|fiddle|shanai|
+tinkle bell|agogo|steel drums|woodblock|taiko drum|melodic tom|synth drum|reverse cymbal|
+guitar fret noise|breath noise|seashore|bird tweet|telephone ring|helicopter|applause|gunshot|
+project los angeles|electric piano|elec. piano|grand piano|acoustic guitar|electric guitar|
+synth bass|synth pluck|synth lead|drum kit|lofi drum kit|scifi|perc|square|sawtooth|sine|triangle"""
+_INSTRUMENTS = {name.strip() for name in _GM.replace("\n", "").split("|")}
+
+
+def _is_instrument(text: str) -> bool:
+    if re.search(r"\((classic|legacy)\)$|\bgtr\b|\bdrum ?kit\b|\bconcert harp\b", text, re.I):
+        return True  # Online Sequencer instrument names
+    t = re.sub(r"\s*\([^)]*\)\s*", " ", text.lower()).strip()  # "Elec. Piano (Classic)"
+    t = re.sub(r"^(8-bit|8 bit|chip|retro)\s+", "", t)  # "8-Bit Triangle"
+    t = re.sub(r"\s*\d+$", "", t)
+    return text.lower() in _INSTRUMENTS or t in _INSTRUMENTS
+
+
+def is_title(text) -> bool:
+    """False for texts that are not titles: instrument names, generic
+    names, software credits."""
+    return bool(text) and 3 <= len(text) <= 120 and not _GENERIC.match(text) \
+        and not _NOT_TITLE.search(text) and not _is_instrument(text) \
+        and sum(c.isalpha() for c in text) >= 3 and not text.startswith("*")
 
 
 def _varlen(data, pos):
@@ -217,17 +257,12 @@ def midi_title(data: bytes) -> str | None:
     the first track (the sequence name), else a text event of the first
     track. Generic names ("Piano", "Track 1") are skipped."""
     texts = midi_texts(data)
-
-    def good(text):
-        return (3 <= len(text) <= 120 and not _GENERIC.match(text) and not _NOT_TITLE.search(text)
-                and sum(c.isalpha() for c in text) >= 3)
-
     for _, meta, text in texts:  # "Title: ..." in any track
         m = _TITLE_LABEL.match(text)
-        if meta in (1, 3) and m and good(m.group(2)):
+        if meta in (1, 3) and m and is_title(m.group(2)):
             return m.group(2).strip()
     for wanted in (3, 1):
         for track, meta, text in texts:
-            if track == 0 and meta == wanted and good(text):
+            if track == 0 and meta == wanted and is_title(text):
                 return text
     return None

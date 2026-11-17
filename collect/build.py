@@ -19,7 +19,7 @@ from whatthemidi.index import write_index  # noqa: E402
 
 # notes per index part: a part must stay under 2**31 notes (32-bit suffix arrays)
 PART_NOTES = 1_500_000_000
-from whatthemidi.midi import Melody  # noqa: E402
+from whatthemidi.midi import Melody, is_title  # noqa: E402
 
 from ingest import connect  # noqa: E402
 from sources import SOURCES  # noqa: E402
@@ -52,6 +52,8 @@ def best_names(db):
     """)
     for key, source, path, file_title in rows:
         copies[key] += 1
+        if not is_title(file_title):  # the rules may be newer than the ingestion
+            file_title = None
         rank = (_is_hash(path), priority.get(source, len(priority)), len(path), path)
         if key not in best or rank < best[key][0]:
             best[key] = (rank, source, path, file_title)

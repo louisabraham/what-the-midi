@@ -78,17 +78,17 @@ that the server searches one after the other.
 
 `sa_search` finds the range of suffixes that start with the query. We
 group the first 100,000 matches by file, and return the files with the
-most matches first. When 2 files have the same number of matches, the
-file whose melody has more copies in the collections comes first (a
-melody found in many files is probably a well-known song). The server
+best score first: `log2(1 + matches in the file) + log2(copies of its
+melody)`. A melody found in many files is probably a well-known song. A
+file that repeats the query many times is often a loop or an exercise,
+so the number of matches counts less and less. The server
 returns at most 50 files and accepts at most 64 notes per query.
 
 ### Memory
 
 The index is a directory of `.npy` files. The server memory-maps them:
 the operating system reads only the pages that a search uses, and can
-remove them from RAM when it needs memory. The server uses about 60 MB
-of RAM with the 765 MB `clean_midi` index.
+remove them from RAM when it needs memory.
 
 ### Note names
 
@@ -98,12 +98,20 @@ without an octave number goes to the octave closest to the previous note.
 
 ## Performance
 
-`clean_midi` on an Apple M4 Max (16 cores):
+On an Apple M4 Max (16 cores, 128 GB RAM):
 
-- 17,029 files (224 files could not be read), 28.6 million notes
-- Parse 1.1 s, suffix arrays 4.4 s
-- Index on disk: 765 MB
-- Search: less than 1 ms (8 ms for a 2-note query with 940,000 matches)
+| Index | Files | Unique melodies | Notes | Index on disk | Build |
+| --- | --- | --- | --- | --- | --- |
+| Lakh `clean_midi` | 17k | 14k | 24 M | 0.6 GB | 4 s |
+| 8 public collections (`collect/`) | 9.3 M | 4.3 M | 1.9 G | 43 GB, 2 parts | 7.6 min |
+
+- Reading and deduplicating the 9.3 M files: 52 min, most of it for
+  the 5 M files of Sourdough.
+- Search in the full index: 1 to 2 ms, about 30 ms when the disk cache
+  is cold.
+- The server keeps the file names and titles in RAM (1.7 GB for the full
+  index) and memory-maps the rest.
+- The build needs about 45 GB of RAM for the full index.
 
 ## API
 
@@ -118,7 +126,8 @@ without an octave number goes to the octave closest to the previous note.
   accompaniment note goes into the melody, and a long query does not
   match. Use shorter queries.
 - The ranking uses only the number of matches in each file and the
-  number of copies of its melody.
+  number of copies of its melody. Different arrangements of a song are
+  different melodies, so their copies are not added together.
 
 ## TODO
 
