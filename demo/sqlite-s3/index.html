@@ -27,7 +27,9 @@
       input { flex: 1; min-width: 0; font: inherit; font-size: 1.05rem; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
       button { font: inherit; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; }
       button:hover { border-color: var(--accent); }
-      .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); }
+      .row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; color: var(--muted); }
+      a { color: var(--accent); }
+      #databases b { color: var(--text); font-weight: 600; }
       .error { color: var(--error); }
       .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; gap: 12px; }
       .card h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
@@ -56,10 +58,11 @@
         <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="E5 D#5 E5 D#5 E5 B4 D5 C5 A4" />
         <button type="submit">Search</button>
       </form>
+      <div class="row" id="databases">Database:</div>
       <div class="row" id="examples">Examples:</div>
       <div class="row">
         <button id="fresh" type="button">New visitor (empty cache)</button>
-        <span>Exact pitches, at least 4 notes. One shard of the collection: the 217,143 melodies of its first part.</span>
+        <span>Exact pitches, at least 4 notes.</span>
       </div>
       <p id="summary" class="stats" aria-live="polite"></p>
       <section id="results"></section>

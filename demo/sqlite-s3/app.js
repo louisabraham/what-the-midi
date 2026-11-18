@@ -15,7 +15,8 @@ import { Database, httpStore } from '/reader/index.js';
 
 const params = new URLSearchParams(location.search);
 const BASE = params.get('base') ?? 'https://reduck-reader-bench-727068700427.s3.eu-west-3.amazonaws.com';
-const DB = params.get('db') ?? 'what-the-midi';
+const DB = params.get('db') ?? 'what-the-midi-all';
+const DATABASES = [['what-the-midi-all', 'the whole collection'], ['what-the-midi', 'one shard (217,143 melodies)']];
 const PREFIX = 'sqlite/v1';
 const LIMIT = 10;
 const EXAMPLES = [
@@ -169,6 +170,9 @@ async function run(text) {
   }
 }
 
+for (const [id, label] of DATABASES) {
+  $('databases').append(id === DB ? el('b', { textContent: label }) : el('a', { href: `?db=${id}`, textContent: label }));
+}
 for (const [name, notes] of EXAMPLES) {
   $('examples').append(el('button', { type: 'button', textContent: name, onclick: () => { $('q').value = notes; run(notes); } }));
 }
