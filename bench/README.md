@@ -122,6 +122,55 @@ What the upload found on sqlite4all:
    number to the table `uploaded`, so an upload can continue where it
    stopped.
 
+## The shard read from S3, with no server
+
+The reader of reduck-sqlite (`reduck-sqlite/reader`: SQLite in
+WebAssembly) reads `midi-shard0` straight from its objects, through
+CloudFront. The service stores it in 1,003 chunks of 1 MiB (251,796
+pages). `open` takes 0.4 to 0.5 s: 9 GETs, 3.7 MB (the interior pages of
+the B-trees and the hot chunks). `bench/reader.mjs` then runs the 190
+queries one after the other, with the 256 MiB cache of the reader:
+"cold" is the first run of a query (it GETs the chunks it needs, and
+the cache keeps those of the queries before), "warm" the best of 3 runs
+after it.
+
+| | Median | p90 | Max |
+| --- | --- | --- | --- |
+| cold, read-ahead 16 (the default) | 6.3 s | 12.4 s | 17.4 s |
+| cold, read-ahead 0 | 1.0 s | 3.9 s | 4.7 s |
+| warm (the chunks are in memory) | 0.37 ms | 1.5 ms | 7.6 ms |
+| GETs, read-ahead 16 | 239 (206 MB) | 460 | 646 |
+| GETs, read-ahead 0 | 20 (17 MB) | 76 | 93 |
+
+Chunks and pages that each query reads (counted by wrapping the
+reader's `page()`, median):
+
+| Queries | Chunks read | Pages read | GETs, read-ahead 0 | Cold | Warm |
+| --- | --- | --- | --- | --- | --- |
+| 10 tunes | 56 | 167 | 29 | 1.5 s | 0.88 ms |
+| 4 notes | 15 | 22 | 3 | 0.15 s | 0.06 ms |
+| 8 notes | 48 | 104 | 16 | 0.84 s | 0.21 ms |
+| 16 notes | 94 | 256 | 42 | 2.1 s | 0.58 ms |
+| 32 notes | 159 | 540 | 78 | 4.1 s | 1.5 ms |
+| all 190 | 53 (max 176) | 134 (max 599) | 20 | 1.0 s | 0.37 ms |
+
+- **Scattered pages:** a query reads about 2.5 pages of each chunk it
+  needs (1 % of the 1 MiB it fetches). Each token of the phrase is looked
+  up in every FTS5 segment, and the index has many segments because it
+  was never optimized. Even a 4-note query (1 token) reads 15 chunks.
+- **One round trip per missing chunk:** SQLite learns the next page only
+  after it reads the one before, so the reader runs the statement again
+  after each GET: 51 ms per GET from the client.
+- **The read-ahead costs 6 times the time and 9 times the bytes here.**
+  Its size doubles at each wait in a B-tree, also inside one statement,
+  and its counter is never reset. An FTS5 lookup jumps between segments
+  far apart in the same B-tree (`m_data`), so the chunks it fetches ahead
+  are rarely read. With the default, the 190 queries downloaded 41.4 GB
+  in 21.6 min; without read-ahead, 4.7 GB in 4.6 min.
+- **Warm**, the reader answers in 0.37 ms: 90 times faster than a
+  request to the sqlite4all API (33 ms), but 14 times slower than the
+  suffix array (0.027 ms).
+
 ## The full index on sqlite4all
 
 - With the shard above, a database holds about 265 M notes. The full
@@ -143,4 +192,9 @@ uv run bench/fts5.py bench data/db-all data/fts5-all.sqlite -o data/bench/fts5-a
 uv run bench/fts5.py shard data/db-all data/shard     # 4 min
 API_KEY=rsk_... uv run bench/fts5.py upload data/shard midi-shard0 -j 8 --no-optimize
 API_KEY=rsk_... uv run bench/fts5.py bench data/shard data/shard/fts5.sqlite midi-shard0 -o data/bench/fts5-shard.json
+node bench/reader.mjs --base https://<cloudfront domain> --db <database id> [--read-ahead 0]
 ```
+
+`bench/reader.mjs` needs the reader built in `../reduck-sqlite/reader`
+(`npm run build`), and `data/bench/shard-queries.json`: the queries of
+`fts5.py` with their number of files, which the script checks.
