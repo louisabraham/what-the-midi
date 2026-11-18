@@ -178,7 +178,7 @@ the default):
 
 | Reader setting | Median | 32 notes | Downloaded | 190 queries |
 | --- | --- | --- | --- | --- |
-| read-ahead 16, cache 256 MiB | 6.3 s | 11.5 s | 41.4 GB | 21.6 min |
+| read-ahead 16, cache 256 MiB | 6.3 s | 13.0 s | 41.4 GB | 21.6 min |
 | read-ahead 0, cache 256 MiB | 1.0 s | 4.1 s | 4.7 GB | 4.6 min |
 | + one query per token first, all at once (`--warm-tokens`) | 0.72 s | 2.5 s | 4.7 GB | 3.1 min |
 | read-ahead 0, cache 2 GiB | 0.19 s | 0.05 s | 0.85 GB | 0.9 min |
