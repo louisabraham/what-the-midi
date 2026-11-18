@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>What the MIDI, SQLite on S3</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E" />
+    <script type="importmap">
+      { "imports": { "fzstd": "/deps/fzstd.mjs", "aws4fetch": "/deps/aws4fetch.mjs" } }
+    </script>
+    <style>
+      :root {
+        --bg: #f7f7f8; --surface: #ffffff; --text: #1d1d22; --muted: #66666f; --border: #dcdce2;
+        --accent: #3a5bd9; --error: #b3261e; --bar: #c9d3f5;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #131316; --surface: #1c1c21; --text: #ececf1; --muted: #9a9aa6; --border: #33333b;
+          --accent: #8ea4ff; --error: #ff8a80; --bar: #2f3b6b; }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, sans-serif; }
+      main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; display: flex; flex-direction: column; gap: 16px; }
+      h1 { margin: 0; font-size: 1.7rem; }
+      .muted { color: var(--muted); margin: 4px 0 0; overflow-wrap: anywhere; }
+      form { display: flex; gap: 6px; }
+      input { flex: 1; min-width: 0; font: inherit; font-size: 1.05rem; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+      button { font: inherit; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; }
+      button:hover { border-color: var(--accent); }
+      .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); }
+      .error { color: var(--error); }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; gap: 12px; }
+      .card h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+      .card p { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+      .copies { white-space: nowrap; color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+      .stats { font-variant-numeric: tabular-nums; margin: 0; }
+      #results { display: flex; flex-direction: column; gap: 8px; }
+      table { border-collapse: collapse; width: 100%; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+      th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+      th:first-child, td:first-child { text-align: left; white-space: normal; }
+      .scroll { overflow-x: auto; }
+      details summary { cursor: pointer; color: var(--muted); }
+      code { font-size: 0.85em; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>What the MIDI, SQLite on S3</h1>
+        <p class="muted">The search runs in this page: SQLite in WebAssembly (the reduck-sqlite reader) reads an FTS5
+          index of 4-note tokens from a public S3 bucket, 64 KiB at a time with range GETs. No server.</p>
+        <p class="muted" id="about">Opening the database…</p>
+      </header>
+      <form id="form">
+        <label for="q" hidden>Notes</label>
+        <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="E5 D#5 E5 D#5 E5 B4 D5 C5 A4" />
+        <button type="submit">Search</button>
+      </form>
+      <div class="row" id="examples">Examples:</div>
+      <div class="row">
+        <button id="fresh" type="button">New visitor (empty cache)</button>
+        <span>Exact pitches, at least 4 notes. One shard of the collection: the 217,143 melodies of its first part.</span>
+      </div>
+      <p id="summary" class="stats" aria-live="polite"></p>
+      <section id="results"></section>
+      <details open>
+        <summary>Searches of this page</summary>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Search</th><th>Cache</th><th>Files</th><th>Total</th><th>Tokens</th><th>Phrase</th><th>Names</th><th>GETs</th><th>Downloaded</th></tr></thead>
+            <tbody id="log"></tbody>
+          </table>
+        </div>
+      </details>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
