@@ -7,8 +7,8 @@ over HTTP).
 
 **Result:** keep the suffix array. On the full index, FTS5 is slower on
 172 of 190 queries (13 times slower for the median query), and its worst
-query takes 937 ms. On sqlite4all, the network takes 99 % of the time of
-a search.
+query takes 937 ms. On sqlite4all, the network takes 97 to 99 % of the
+time of a search, also on a database of maximal size (1 GiB).
 
 ## Method
 
@@ -81,16 +81,55 @@ The worst cases:
    hits of a 3 to 8-note piece without reading them. FTS5 reads the
    lists.
 
+## One shard of maximal size on sqlite4all
+
+`fts5.py shard` takes the first melodies of the full index until the
+FTS5 file reaches 984 MiB (1 GiB minus a margin):
+
+- 217,143 melodies, 265.8 M notes. The remote database `midi-shard0` is
+  1,031,356,416 bytes, 96 % of the 1 GiB limit.
+- 40 melodies of more than 27,700 notes are left out (on both sides).
+  Their tokens do not fit in one request (256 KiB), and sqlite4all keeps
+  at most 1 MiB in one value.
+- The upload took 14 min (10,188 requests, 7.3 min of SQLite time).
+- No `optimize`: on a 1 GiB database it would need a second copy of the
+  index and more than the 5 s limit of a statement (29 s locally). The
+  local copy is not optimized either, so both have the same segments.
+
+| Engine | Median | p90 | Max |
+| --- | --- | --- | --- |
+| suffix array | 0.027 ms | 0.09 ms | 8.6 ms |
+| FTS5, local | 1.07 ms | 2.6 ms | 12.8 ms |
+| FTS5 on sqlite4all, time in SQLite | 1.06 ms | 4.0 ms | 7.0 ms |
+| FTS5 on sqlite4all, time of the request | 33.0 ms | 36.2 ms | 43.6 ms |
+| FTS5, local, after `optimize` | 0.089 ms | 0.44 ms | 9.9 ms |
+
+- **FTS5 against the suffix array:** FTS5 is slower on 186 of 190
+  queries (34 times slower for the median query).
+- **Network:** it takes 97 % of the time of a remote request (median).
+  On the server, SQLite is as fast as locally.
+- **No `optimize`:** FTS5 is 12 times slower. The many segments of an
+  index built by small transactions are each searched.
+
+What the upload found on sqlite4all:
+
+1. **`LOCAL_STORAGE_LIMIT`**, an error that the documentation does not
+   list: after about 4,300 requests (459 MB), the database refused all
+   writes for about 70 s, until the server had copied the writes to S3.
+   `upload` now waits 15 s and sends the batch again.
+2. **A contentless FTS5 table cannot be scanned** (`SELECT rowid FROM
+   m`: "table does not support scanning"). Each batch now writes its
+   number to the table `uploaded`, so an upload can continue where it
+   stopped.
+
 ## The full index on sqlite4all
 
-- A database holds at most 1 GiB, which is about 300 M notes. The full
-  index needs 6 databases (6.1 GB of the 10 GiB of an account). Each
-  search is then 6 requests in parallel.
-- The upload is 15.5 GB of requests and about 30 min of SQLite time. An
-  account gets 30 s of SQLite time each minute, so the upload takes at
-  least 1 hour.
-- On the Lakh database, the SQLite time on the server was 5 times the
-  local time.
+- With the shard above, a database holds about 265 M notes. The full
+  index (1.74 G notes) needs 7 databases, and each search is 7 requests
+  in parallel. The account limit was 10 GiB this afternoon; the API now
+  shows 1 TB.
+- The upload is about 15.5 GB of requests and 50 min of SQLite time,
+  with pauses for `LOCAL_STORAGE_LIMIT`: about 1.5 to 2 hours.
 
 ## Commands
 
@@ -101,4 +140,7 @@ API_KEY=rsk_... uv run bench/fts5.py upload data/db-lakh midi-lakh
 API_KEY=rsk_... uv run bench/fts5.py bench data/db-lakh data/fts5-lakh.sqlite midi-lakh -o data/bench/fts5-lakh.json
 uv run bench/fts5.py local data/db-all data/fts5-all.sqlite   # 26 min
 uv run bench/fts5.py bench data/db-all data/fts5-all.sqlite -o data/bench/fts5-all.json
+uv run bench/fts5.py shard data/db-all data/shard     # 4 min
+API_KEY=rsk_... uv run bench/fts5.py upload data/shard midi-shard0 -j 8 --no-optimize
+API_KEY=rsk_... uv run bench/fts5.py bench data/shard data/shard/fts5.sqlite midi-shard0 -o data/bench/fts5-shard.json
 ```
