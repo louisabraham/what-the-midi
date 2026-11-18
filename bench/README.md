@@ -180,6 +180,7 @@ the default):
 | --- | --- | --- | --- | --- |
 | read-ahead 16, cache 256 MiB | 6.3 s | 13.0 s | 41.4 GB | 21.6 min |
 | read-ahead 0, cache 256 MiB | 1.0 s | 4.1 s | 4.7 GB | 4.6 min |
+| read-ahead 16 after the fix (reduck-sqlite `f4ef1cd`: scans only) | 1.2 s | 4.3 s | 5.1 GB | 5.1 min |
 | + one query per token first, all at once (`--warm-tokens`) | 0.72 s | 2.5 s | 4.7 GB | 3.1 min |
 | read-ahead 0, cache 2 GiB | 0.19 s | 0.05 s | 0.85 GB | 0.9 min |
 | all the chunks first (`--prefetch`: 27 s, 32 GETs at a time) | 1 ms | 2 ms | 0.85 GB | 27 s + 0.2 s |
@@ -212,6 +213,29 @@ Pages read per query, counted locally with a counting VFS
 Of the 194 pages, 55 are interior pages, which the reader fetches at
 `open`. 46 are leaf pages of the term index `m_idx`, which is only
 4.9 MiB.
+
+## Visitors who make 1 or 2 searches
+
+`bench/cold.mjs` opens a new `Database` for each visitor (an empty cache)
+and runs 2 queries; 40 visitors. The variants were written by
+`sqlite-convert` (reduck-sqlite, branch `convert`, `docs/convert.md`) from
+the same shard, and read from S3 (eu-west-3, signed GETs, about 35 ms per
+GET from the client). "Warm-up": before the phrase query, one query per
+token of the phrase, all at once (`--warm-tokens`).
+
+| Layout | zstd | Warm-up | Open + 1st query (p90) | 2nd query | Downloaded |
+| --- | --- | --- | --- | --- | --- |
+| as sqlite4all stores it: 17 segments, 1 MiB chunks | fzstd | no | 4.64 s (8.5 s) | 3.1 s | 63 MB |
+| FTS5 `optimize`, 64 KiB frames, range GETs, hot list | fzstd | no | 0.87 s (1.9 s) | 0.61 s | 3.6 MB |
+| same | native | no | 0.46 s (1.1 s) | 0.32 s | 3.6 MB |
+| `optimize`, 64 KiB chunks, hot list | native | yes | 0.34 s (0.50 s) | 0.11 s | 3.5 MB |
+| `optimize`, 64 KiB frames, range GETs, no hot list | fzstd | yes | **0.37 s** (0.47 s) | **0.11 s** | 2.4 MB |
+| same | native | yes | 0.30 s (0.41 s) | 0.10 s | 2.4 MB |
+
+The real `midi-shard0` through CloudFront, as sqlite4all stores it: 2.8 s
+(p90 7.7 s). With a model of a CloudFront link that hits its cache (9 ms per
+GET, 57 MB/s: `--dir` with `--latency` and `--mbps`), the best layout takes
+0.19 s with fzstd and 0.12 s with the native zstd.
 
 ## The full index on sqlite4all
 

@@ -83,9 +83,9 @@ if (file) {
 const fetches = new Map();
 if (file) {
   const fetch = file.fetch.bind(file);
-  file.fetch = (hash, size, pages) => {
+  file.fetch = (hash, ...rest) => {
     fetches.set(hash, (fetches.get(hash) ?? 0) + 1);
-    return fetch(hash, size, pages);
+    return fetch(hash, ...rest);
   };
 }
 if (file && args.prefetch) {
