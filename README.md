@@ -144,6 +144,8 @@ On an Apple M4 Max (16 cores, 128 GB RAM):
 - The server keeps the file names and titles in RAM (1.7 GB for the full
   index) and memory-maps the rest.
 - The build needs about 45 GB of RAM for the full index.
+- SQLite FTS5 with 4-note tokens, on the same notes: 13 times slower for
+  the median query, 937 ms for the worst one (`bench/README.md`).
 
 ## API
 
