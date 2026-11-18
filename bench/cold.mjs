@@ -27,7 +27,7 @@ const { values: a } = parseArgs({
     db: { type: 'string' }, prefix: { type: 'string', default: 'sqlite/v1' },
     queries: { type: 'string', default: 'data/bench/shard-queries.json' },
     visitors: { type: 'string', default: '40' },
-    reader: { type: 'string', default: '../reduck-sqlite-convert/reader/dist/index.js' },
+    reader: { type: 'string', default: '../reduck-sqlite/reader/dist/index.js' },
     zstd: { type: 'string', default: 'js' },
     'range-gets': { type: 'boolean', default: false },
     'warm-tokens': { type: 'boolean', default: false },
