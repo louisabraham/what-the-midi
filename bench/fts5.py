@@ -456,6 +456,54 @@ def export_queries(db_dir, results, out, per_length):
     print(f"{len(rows)} queries in {out}")
 
 
+def count_pages(databases, queries_file, out):
+    """Distinct pages of each database file that each query reads, through
+    a VFS that counts the reads (needs apsw: uv run --with apsw). A new
+    connection for each query: no page comes from a cache."""
+    import apsw
+
+    main_db = apsw.mapping_open_flags["SQLITE_OPEN_MAIN_DB"]
+
+    class Counting(apsw.VFS):
+        def __init__(self):
+            self.pages = set()
+            super().__init__("counting", "")
+
+        def xOpen(self, name, flags):
+            return CountingFile(self, name, flags)
+
+    class CountingFile(apsw.VFSFile):
+        def __init__(self, vfs, name, flags):
+            self.vfs, self.main = vfs, bool(flags[0] & main_db)
+            super().__init__("", name, flags)
+
+        def xRead(self, amount, offset):
+            if self.main:
+                self.vfs.pages.update(range(offset // 4096, (offset + amount - 1) // 4096 + 1))
+            return super().xRead(amount, offset)
+
+    vfs = Counting()
+    qs = json.loads(Path(queries_file).read_text())
+    rows = [{"label": q["label"], "notes": q["notes"]} for q in qs]
+    for path in databases:
+        name = Path(path).stem
+        for q, row in zip(qs, rows):
+            vfs.pages.clear()
+            con = apsw.Connection(str(path), flags=apsw.SQLITE_OPEN_READONLY, vfs="counting")
+            n = con.execute(COUNT, (q["phrase"],)).fetchall()[0][0]
+            con.close()
+            assert n == q["files"], (q["label"], n, q["files"])
+            row[f"{name}_pages"] = len(vfs.pages)
+    Path(out).write_text(json.dumps(rows, indent=1))
+    groups = {}
+    for r in rows:
+        groups.setdefault(r["label"] if r["label"].startswith("random") else "10 tunes", []).append(r)
+    cols = [f"{Path(p).stem}_pages" for p in databases]
+    print(f"{'queries':12} " + " ".join(f"{c:>18}" for c in cols) + "   (median / max)")
+    for key, rs in list(groups.items()) + [("all", rows)]:
+        print(f"{key:12} " + " ".join(f"{np.median([r[c] for r in rs]):9.0f} /{max(r[c] for r in rs):6}" for c in cols))
+
+
 def summary(rows):
     cols = [c for c in ("sa_ms", "fts_ms", "fts10_ms", "app_ms", "remote_sql_ms", "remote_ms")
             if c in rows[0]]
@@ -492,6 +540,10 @@ def main():
     p.add_argument("name", nargs="?")
     p.add_argument("-n", "--per-length", type=int, default=30)
     p.add_argument("-o", "--out", default="data/bench/fts5.json")
+    p = sub.add_parser("pages", help="pages that each query reads (needs apsw)")
+    p.add_argument("databases", nargs="+")
+    p.add_argument("--queries", default="data/bench/shard-queries.json")
+    p.add_argument("-o", "--out", default="data/bench/pages-shard.json")
     p = sub.add_parser("queries", help="the queries of a bench run, for bench/reader.mjs")
     p.add_argument("db_dir")
     p.add_argument("results", help="the JSON file of a bench run on db_dir")
@@ -502,6 +554,8 @@ def main():
         build_local(args.db_dir, args.out)
     elif args.command == "upload":
         upload(args.db_dir, args.name, args.jobs, not args.no_optimize)
+    elif args.command == "pages":
+        count_pages(args.databases, args.queries, args.out)
     elif args.command == "queries":
         export_queries(args.db_dir, args.results, args.out, args.per_length)
     elif args.command == "shard":

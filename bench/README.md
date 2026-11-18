@@ -171,6 +171,48 @@ reader's `page()`, median):
   request to the sqlite4all API (33 ms), but 14 times slower than the
   suffix array (0.027 ms).
 
+### Ways to make the reader faster
+
+Measured on the same 190 queries (median cold query; the first line is
+the default):
+
+| Reader setting | Median | 32 notes | Downloaded | 190 queries |
+| --- | --- | --- | --- | --- |
+| read-ahead 16, cache 256 MiB | 6.3 s | 11.5 s | 41.4 GB | 21.6 min |
+| read-ahead 0, cache 256 MiB | 1.0 s | 4.1 s | 4.7 GB | 4.6 min |
+| + one query per token first, all at once (`--warm-tokens`) | 0.72 s | 2.5 s | 4.7 GB | 3.1 min |
+| read-ahead 0, cache 2 GiB | 0.19 s | 0.05 s | 0.85 GB | 0.9 min |
+| all the chunks first (`--prefetch`: 27 s, 32 GETs at a time) | 1 ms | 2 ms | 0.85 GB | 27 s + 0.2 s |
+
+- **More than the database was downloaded** because the cache (256 MiB)
+  is smaller than the database: the 190 queries read 990 of its 1,003
+  chunks, so the cache drops chunks that a later query fetches again.
+  With a 2 GiB cache, each chunk was fetched exactly once (854 MB).
+- **A wait costs 51 ms:** 24.5 ms for the GET of a whole chunk (0.87 MB)
+  and 24 ms of CPU (21.7 ms of zstd in JavaScript, 2.5 ms of checksum). A
+  range GET of 4 to 64 KiB takes 9.3 to 9.7 ms, and Node's native zstd
+  decompresses a chunk in 1.1 ms.
+- **A longer query reads more pages, although it finds fewer files.**
+  FTS5 looks up each token of the phrase in each of the 17 segments
+  before it compares their positions: about 20 pages per token. The
+  matches of the first tokens do not make the lookups of the next ones
+  cheaper. The suffix array instead compares the whole query at each of
+  its 28 steps, so its time does not depend on the length.
+
+Pages read per query, counted locally with a counting VFS
+(`uv run --with apsw bench/fts5.py pages ...`), median:
+
+| Queries | 17 segments | after `optimize` (1 segment) |
+| --- | --- | --- |
+| 4 notes (1 token) | 62 | 12 |
+| 16 notes (13 tokens) | 360 | 58 |
+| 32 notes (29 tokens) | 630 | 102 |
+| all 190 | 194 | 42 |
+
+Of the 194 pages, 55 are interior pages, which the reader fetches at
+`open`. 46 are leaf pages of the term index `m_idx`, which is only
+4.9 MiB.
+
 ## The full index on sqlite4all
 
 - With the shard above, a database holds about 265 M notes. The full
