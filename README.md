@@ -135,10 +135,10 @@ On an Apple M4 Max (16 cores, 128 GB RAM):
 | Index | Files | Unique melodies | Notes | Index on disk | Build |
 | --- | --- | --- | --- | --- | --- |
 | Lakh `clean_midi` | 17k | 14k | 24 M | 0.6 GB | 4 s |
-| 8 public collections (`collect/`) | 9.3 M | 4.3 M | 1.9 G | 43 GB, 2 parts | 7.6 min |
+| 10 public collections (`collect/`) | 11.4 M | 4.6 M, in 4.2 M groups | 1.7 G | 39 GB, 2 parts | 10 min |
 
-- Reading and deduplicating the 9.3 M files: 52 min, most of it for
-  the 5 M files of Sourdough.
+- Reading and deduplicating the first 9.3 M files: 52 min, most of it
+  for the 5 M files of Sourdough.
 - Search in the full index: 1 to 2 ms, about 30 ms when the disk cache
   is cold.
 - The server keeps the file names and titles in RAM (1.7 GB for the full

@@ -84,11 +84,14 @@ well-known song.
 | monster       | 2,335,783      | 90,444     | 965,583     | 364,591   | 59     | 915,106       | 373 M      |
 | sourdough     | 4,979,331      | 598,662    | 843,087     | 697,635   | 1,901  | 2,838,046     | 886 M      |
 | gigamidi      | 2,136,218      | 716,855    | 782,837     | 295,071   | 0      | 341,455       | 145 M      |
-| **total**     | **11,390,293** |            |             |           |        | **4,635,319** | **2.05 G** |
+| geocities     | 48,265         | 48,245     | 18          | 0         | 2      | 0             | 0          |
+| **total**     | **11,438,558** |            |             |           |        | **4,635,319** | **2.05 G** |
 
 Each row counts the duplicates of the rows ingested before it (bread was
-ingested before los_angeles, gigamidi last). The near duplicates then
-make 4,190,186 groups: 445,133 melodies fewer.
+ingested before los_angeles, gigamidi and then geocities last). MIDIMAN
+already contains 42,233 of the GeoCities files: GeoCities adds only file
+names and copies. The near duplicates then make 4,190,187 groups:
+445,132 melodies fewer.
 
 ## Data layout
 

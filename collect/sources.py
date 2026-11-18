@@ -54,6 +54,16 @@ SOURCES = [
         notes="169k files, includes the MIDIMAN collection",
     ),
     Source(
+        name="geocities",
+        title="Archive Team GeoCities MIDI Collection 2009, version 1.2",
+        homepage="https://archive.org/details/TheGeocitiesMidiCollectionVersion1.2",
+        license="unknown (saved from GeoCities in 2009)",
+        archive_org="TheGeocitiesMidiCollectionVersion1.2",
+        archive_org_pattern=r"\.7z$",
+        notes="51k files with their web names; the original item "
+              "(archiveteam-geocities-midi-collection-2009) is access-restricted",
+    ),
+    Source(
         name="lakh_full",
         title="Lakh MIDI Dataset, full",
         homepage="https://colinraffel.com/projects/lmd/",
