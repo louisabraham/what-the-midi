@@ -96,13 +96,13 @@ FTS5 file reaches 984 MiB (1 GiB minus a margin):
   index and more than the 5 s limit of a statement (29 s locally). The
   local copy is not optimized either, so both have the same segments.
 
-| Engine | Median | p90 | Max |
-| --- | --- | --- | --- |
-| suffix array | 0.027 ms | 0.09 ms | 8.6 ms |
-| FTS5, local | 1.07 ms | 2.6 ms | 12.8 ms |
-| FTS5 on sqlite4all, time in SQLite | 1.06 ms | 4.0 ms | 7.0 ms |
-| FTS5 on sqlite4all, time of the request | 33.0 ms | 36.2 ms | 43.6 ms |
-| FTS5, local, after `optimize` | 0.089 ms | 0.44 ms | 9.9 ms |
+| Engine                                  | Median   | p90     | Max     |
+| --------------------------------------- | -------- | ------- | ------- |
+| suffix array                            | 0.027 ms | 0.09 ms | 8.6 ms  |
+| FTS5, local                             | 1.07 ms  | 2.6 ms  | 12.8 ms |
+| FTS5 on sqlite4all, time in SQLite      | 1.06 ms  | 4.0 ms  | 7.0 ms  |
+| FTS5 on sqlite4all, time of the request | 33.0 ms  | 36.2 ms | 43.6 ms |
+| FTS5, local, after `optimize`           | 0.089 ms | 0.44 ms | 9.9 ms  |
 
 - **FTS5 against the suffix array:** FTS5 is slower on 186 of 190
   queries (34 times slower for the median query).
@@ -118,7 +118,7 @@ What the upload found on sqlite4all:
    writes for about 70 s, until the server had copied the writes to S3.
    `upload` now waits 15 s and sends the batch again.
 2. **A contentless FTS5 table cannot be scanned** (`SELECT rowid FROM
-   m`: "table does not support scanning"). Each batch now writes its
+m`: "table does not support scanning"). Each batch now writes its
    number to the table `uploaded`, so an upload can continue where it
    stopped.
 
@@ -134,25 +134,25 @@ queries one after the other, with the 256 MiB cache of the reader:
 the cache keeps those of the queries before), "warm" the best of 3 runs
 after it.
 
-| | Median | p90 | Max |
-| --- | --- | --- | --- |
-| cold, read-ahead 16 (the default) | 6.3 s | 12.4 s | 17.4 s |
-| cold, read-ahead 0 | 1.0 s | 3.9 s | 4.7 s |
-| warm (the chunks are in memory) | 0.37 ms | 1.5 ms | 7.6 ms |
-| GETs, read-ahead 16 | 239 (206 MB) | 460 | 646 |
-| GETs, read-ahead 0 | 20 (17 MB) | 76 | 93 |
+|                                   | Median       | p90    | Max    |
+| --------------------------------- | ------------ | ------ | ------ |
+| cold, read-ahead 16 (the default) | 6.3 s        | 12.4 s | 17.4 s |
+| cold, read-ahead 0                | 1.0 s        | 3.9 s  | 4.7 s  |
+| warm (the chunks are in memory)   | 0.37 ms      | 1.5 ms | 7.6 ms |
+| GETs, read-ahead 16               | 239 (206 MB) | 460    | 646    |
+| GETs, read-ahead 0                | 20 (17 MB)   | 76     | 93     |
 
 Chunks and pages that each query reads (counted by wrapping the
 reader's `page()`, median):
 
-| Queries | Chunks read | Pages read | GETs, read-ahead 0 | Cold | Warm |
-| --- | --- | --- | --- | --- | --- |
-| 10 tunes | 56 | 167 | 29 | 1.5 s | 0.88 ms |
-| 4 notes | 15 | 22 | 3 | 0.15 s | 0.06 ms |
-| 8 notes | 48 | 104 | 16 | 0.84 s | 0.21 ms |
-| 16 notes | 94 | 256 | 42 | 2.1 s | 0.58 ms |
-| 32 notes | 159 | 540 | 78 | 4.1 s | 1.5 ms |
-| all 190 | 53 (max 176) | 134 (max 599) | 20 | 1.0 s | 0.37 ms |
+| Queries  | Chunks read  | Pages read    | GETs, read-ahead 0 | Cold   | Warm    |
+| -------- | ------------ | ------------- | ------------------ | ------ | ------- |
+| 10 tunes | 56           | 167           | 29                 | 1.5 s  | 0.88 ms |
+| 4 notes  | 15           | 22            | 3                  | 0.15 s | 0.06 ms |
+| 8 notes  | 48           | 104           | 16                 | 0.84 s | 0.21 ms |
+| 16 notes | 94           | 256           | 42                 | 2.1 s  | 0.58 ms |
+| 32 notes | 159          | 540           | 78                 | 4.1 s  | 1.5 ms  |
+| all 190  | 53 (max 176) | 134 (max 599) | 20                 | 1.0 s  | 0.37 ms |
 
 - **Scattered pages:** a query reads about 2.5 pages of each chunk it
   needs (1 % of the 1 MiB it fetches). Each token of the phrase is looked
@@ -176,14 +176,14 @@ reader's `page()`, median):
 Measured on the same 190 queries (median cold query; the first line is
 the default):
 
-| Reader setting | Median | 32 notes | Downloaded | 190 queries |
-| --- | --- | --- | --- | --- |
-| read-ahead 16, cache 256 MiB | 6.3 s | 13.0 s | 41.4 GB | 21.6 min |
-| read-ahead 0, cache 256 MiB | 1.0 s | 4.1 s | 4.7 GB | 4.6 min |
-| read-ahead 16 after the fix (reduck-sqlite `f4ef1cd`: scans only) | 1.2 s | 4.3 s | 5.1 GB | 5.1 min |
-| + one query per token first, all at once (`--warm-tokens`) | 0.72 s | 2.5 s | 4.7 GB | 3.1 min |
-| read-ahead 0, cache 2 GiB | 0.19 s | 0.05 s | 0.85 GB | 0.9 min |
-| all the chunks first (`--prefetch`: 27 s, 32 GETs at a time) | 1 ms | 2 ms | 0.85 GB | 27 s + 0.2 s |
+| Reader setting                                                    | Median | 32 notes | Downloaded | 190 queries  |
+| ----------------------------------------------------------------- | ------ | -------- | ---------- | ------------ |
+| read-ahead 16, cache 256 MiB                                      | 6.3 s  | 13.0 s   | 41.4 GB    | 21.6 min     |
+| read-ahead 0, cache 256 MiB                                       | 1.0 s  | 4.1 s    | 4.7 GB     | 4.6 min      |
+| read-ahead 16 after the fix (reduck-sqlite `f4ef1cd`: scans only) | 1.2 s  | 4.3 s    | 5.1 GB     | 5.1 min      |
+| + one query per token first, all at once (`--warm-tokens`)        | 0.72 s | 2.5 s    | 4.7 GB     | 3.1 min      |
+| read-ahead 0, cache 2 GiB                                         | 0.19 s | 0.05 s   | 0.85 GB    | 0.9 min      |
+| all the chunks first (`--prefetch`: 27 s, 32 GETs at a time)      | 1 ms   | 2 ms     | 0.85 GB    | 27 s + 0.2 s |
 
 - **More than the database was downloaded** because the cache (256 MiB)
   is smaller than the database: the 190 queries read 990 of its 1,003
@@ -203,12 +203,12 @@ the default):
 Pages read per query, counted locally with a counting VFS
 (`uv run --with apsw bench/fts5.py pages ...`), median:
 
-| Queries | 17 segments | after `optimize` (1 segment) |
-| --- | --- | --- |
-| 4 notes (1 token) | 62 | 12 |
-| 16 notes (13 tokens) | 360 | 58 |
-| 32 notes (29 tokens) | 630 | 102 |
-| all 190 | 194 | 42 |
+| Queries              | 17 segments | after `optimize` (1 segment) |
+| -------------------- | ----------- | ---------------------------- |
+| 4 notes (1 token)    | 62          | 12                           |
+| 16 notes (13 tokens) | 360         | 58                           |
+| 32 notes (29 tokens) | 630         | 102                          |
+| all 190              | 194         | 42                           |
 
 Of the 194 pages, 55 are interior pages, which the reader fetches at
 `open`. 46 are leaf pages of the term index `m_idx`, which is only
@@ -223,19 +223,134 @@ the same shard, and read from S3 (eu-west-3, signed GETs, about 35 ms per
 GET from the client). "Warm-up": before the phrase query, one query per
 token of the phrase, all at once (`--warm-tokens`).
 
-| Layout | zstd | Warm-up | Open + 1st query (p90) | 2nd query | Downloaded |
-| --- | --- | --- | --- | --- | --- |
-| as sqlite4all stores it: 17 segments, 1 MiB chunks | fzstd | no | 4.64 s (8.5 s) | 3.1 s | 63 MB |
-| FTS5 `optimize`, 64 KiB frames, range GETs, hot list | fzstd | no | 0.87 s (1.9 s) | 0.61 s | 3.6 MB |
-| same | native | no | 0.46 s (1.1 s) | 0.32 s | 3.6 MB |
-| `optimize`, 64 KiB chunks, hot list | native | yes | 0.34 s (0.50 s) | 0.11 s | 3.5 MB |
-| `optimize`, 64 KiB frames, range GETs, no hot list | fzstd | yes | **0.37 s** (0.47 s) | **0.11 s** | 2.4 MB |
-| same | native | yes | 0.30 s (0.41 s) | 0.10 s | 2.4 MB |
+| Layout                                               | zstd   | Warm-up | Open + 1st query (p90) | 2nd query  | Downloaded |
+| ---------------------------------------------------- | ------ | ------- | ---------------------- | ---------- | ---------- |
+| as sqlite4all stores it: 17 segments, 1 MiB chunks   | fzstd  | no      | 4.64 s (8.5 s)         | 3.1 s      | 63 MB      |
+| FTS5 `optimize`, 64 KiB frames, range GETs, hot list | fzstd  | no      | 0.87 s (1.9 s)         | 0.61 s     | 3.6 MB     |
+| same                                                 | native | no      | 0.46 s (1.1 s)         | 0.32 s     | 3.6 MB     |
+| `optimize`, 64 KiB chunks, hot list                  | native | yes     | 0.34 s (0.50 s)        | 0.11 s     | 3.5 MB     |
+| `optimize`, 64 KiB frames, range GETs, no hot list   | fzstd  | yes     | **0.37 s** (0.47 s)    | **0.11 s** | 2.4 MB     |
+| same                                                 | native | yes     | 0.30 s (0.41 s)        | 0.10 s     | 2.4 MB     |
 
 The real `midi-shard0` through CloudFront, as sqlite4all stores it: 2.8 s
 (p90 7.7 s). With a model of a CloudFront link that hits its cache (9 ms per
 GET, 57 MB/s: `--dir` with `--latency` and `--mbps`), the best layout takes
 0.19 s with fzstd and 0.12 s with the native zstd.
+
+## Static suffix array: no SQLite, no server
+
+`whatthemidi/static.py` (`what-the-midi static`) cuts the suffix array of
+the shard into blocks. `web/src/lib/static-index.js` (7 KB, no
+WebAssembly, no dependency) reads them with GETs and range GETs, in a
+browser (`web/static.html`) or in Node. `bench/static.mjs` runs the same
+190 queries and the same 40 visitors as `cold.mjs`, with the same network
+model and the same S3 store.
+
+### Layout
+
+- **Leaf:** 4,096 consecutive suffixes. For each: its position (4 bytes),
+  its key (front coded) and its `dup` (1 byte).
+- **Key:** the shortest prefix that separates the suffix from its 2
+  neighbours (7.4 notes on average). For a query, at most one key in the
+  whole array is shorter than the query and equal to its start; the reader
+  then GETs that suffix from the text (75 of the 190 queries, 1 range GET).
+- **`dup`:** the LCP with the next suffix of the same file. In the range
+  of a query of m notes, `files = matches - #{dup >= m}`: the number of
+  files with no list of files. The reader GETs the `dup` bytes only when
+  the matches fill more than the 2 leaves at their ends (6 of the 190
+  queries, at most 245 KB).
+- **Internal nodes:** 256 children. The root (10 KB) comes with the
+  manifest at `open`.
+
+A search is 2 rounds of GETs (1 internal node, then the leaves of the
+first and the last match, in parallel), plus at most 1 for the text and 1
+for `dup`.
+
+|        | Static suffix array                                   | FTS5 (`v6-f16`)                        |
+| ------ | ----------------------------------------------------- | -------------------------------------- |
+| Stored | 4.37 GB (leaves 3.82 GB, text and `dup` 0.27 GB each) | 0.87 GB                                |
+| Build  | 65 s, 22 GB of RAM                                    | 26 min for FTS5, then `sqlite-convert` |
+
+### Results
+
+Visitors (`--run visitors`, 40 visitors, a new index each, then 2
+queries), with the model of `cold.mjs` (9 ms per GET, 57 MB/s):
+
+| Layout                                                     | Open   | 1st query | Open + 1st (p90)  | 2nd query | Downloaded  |
+| ---------------------------------------------------------- | ------ | --------- | ----------------- | --------- | ----------- |
+| FTS5 `v6-f16`, fzstd, warm-up (best of `cold.mjs`)         | 112 ms | 70 ms     | 185 ms (231 ms)   | 51 ms     | 2.4 MB      |
+| FTS5 `v6-f16`, native zstd, warm-up                        | 68 ms  | 57 ms     | 124 ms (162 ms)   | 37 ms     | 2.4 MB      |
+| static, 4,096 per leaf, 256 per node                       | 12 ms  | 27 ms     | **39 ms** (49 ms) | 27 ms     | **0.15 MB** |
+| static, 16,384 per leaf, the root over the leaves (654 KB) | 28 ms  | 20 ms     | 48 ms (61 ms)     | 20 ms     | 1.1 MB      |
+| static, keys of at least 32 notes (8.6 GB)                 | 12 ms  | 26 ms     | 38 ms (43 ms)     | 26 ms     | 0.30 MB     |
+
+The 190 queries (`--run queries`, each on a new index, open not counted):
+
+| Layout                            | Cold median | p90   | Max   | GETs | Downloaded | Warm     |
+| --------------------------------- | ----------- | ----- | ----- | ---- | ---------- | -------- |
+| static, 4,096 per leaf            | 27 ms       | 38 ms | 48 ms | 2    | 69 KB      | 0.014 ms |
+| static, root over the leaves      | 21 ms       | 33 ms | 45 ms | 1    | 234 KB     | 0.007 ms |
+| static, keys of at least 32 notes | 26 ms       | 28 ms | 43 ms | 2    | 141 KB     | 0.006 ms |
+
+- **3 to 5 times faster than the best FTS5 layout in this model, with 16
+  times fewer bytes.** The time is the number of rounds of GETs: 2 for a
+  search, as many as the tree has levels, and it does not depend on the
+  number of notes of the query.
+- **The keys of at least 32 notes** remove the text GET of the long
+  queries (p90 28 ms instead of 38 ms), for twice the storage.
+- **The root over the leaves** saves a round, but `open` downloads 654 KB
+  and each leaf is 234 KB.
+- **Warm** (the nodes in memory): 0.014 ms, about the time of the suffix
+  array in Python (0.027 ms), 26 times faster than FTS5 warm (0.37 ms).
+- **Correct:** for the 190 queries, the same numbers of files as the
+  suffix array and FTS5. `tests/test_static.py` compares the reader with
+  a brute-force search, for 3 tree shapes.
+
+### On S3
+
+The same bucket as `cold.mjs` (eu-west-3, signed GETs, the `s3Store` of
+the reduck-sqlite reader), on 18 November at 23:00. The FTS5 rows were
+measured again at the same time (yesterday at 20:50: 366 ms and 303 ms).
+
+| Layout                                                   | Open   | 1st query | Open + 1st (p90)    | 2nd query | Downloaded  |
+| -------------------------------------------------------- | ------ | --------- | ------------------- | --------- | ----------- |
+| FTS5 `v6-f16`, fzstd (what a browser runs), warm-up      | 186 ms | 245 ms    | 424 ms (603 ms)     | 180 ms    | 2.4 MB      |
+| FTS5 `v6-f16`, native zstd, warm-up                      | 137 ms | 170 ms    | 312 ms (410 ms)     | 103 ms    | 2.4 MB      |
+| static, 4,096 per leaf, files of 64 MiB                  | 34 ms  | 127 ms    | 161 ms (222 ms)     | 128 ms    | **0.15 MB** |
+| static, 4,096 per leaf, 1 file per level                 | 36 ms  | 117 ms    | 151 ms (198 ms)     | 120 ms    | **0.15 MB** |
+| static, root over 16,384-suffix leaves, 1 file per level | 54 ms  | 88 ms     | **140 ms** (206 ms) | 93 ms     | 1.1 MB      |
+
+The 190 queries, each on a new index (open not counted):
+
+| Layout                       | Cold median | p90    | Max    |
+| ---------------------------- | ----------- | ------ | ------ |
+| static, files of 64 MiB      | 136 ms      | 192 ms | 252 ms |
+| static, 1 file per level     | 120 ms      | 170 ms | 224 ms |
+| static, root over the leaves | 94 ms       | 140 ms | 258 ms |
+
+- **Open and the first search: 2.2 to 3 times faster than FTS5**
+  (140 ms against 312 ms with native zstd, 424 ms with the fzstd of a
+  browser), with 2 to 16 times fewer bytes. The second search takes about
+  the same time (93 to 120 ms against 103 ms): after its first search,
+  the FTS5 reader has the hot pages in its cache.
+- **A round of GETs costs 30 to 90 ms on S3, not 9 ms.** A range GET takes
+  about 32 ms in a region of an object that was read a short time before
+  (the same bytes, or up to 64 KB from them), and about 72 ms (55 to 107
+  ms) in a region that was not read. The size of the range has almost no
+  effect (4 KB: 37 ms, 256 KB: 37 ms). A search reads one leaf of 3.8 GB
+  of leaves: almost always a region that was not read. Measured with
+  sequential range GETs of 60 KB on one connection.
+- **1 file per level** (now the default) is 10 ms faster than files of 64
+  MiB: with 61 files of leaves, most searches read a file that no search
+  read a short time before.
+- **The root over the leaves** removes the round of the internal node (a
+  region that many searches read, so about 32 ms), for 654 KB at open.
+
+For a public page: a public bucket or CloudFront, and a CORS rule that
+allows the `Range` header. A static index of the full index (1.74 G
+notes) is about 7 shards like this one, or one index in 2 parts of up to
+2^32 notes: the time of a search stays the same, because the number of
+rounds depends on the levels of the tree only.
 
 ## The full index on sqlite4all
 
@@ -260,6 +375,17 @@ API_KEY=rsk_... uv run bench/fts5.py upload data/shard midi-shard0 -j 8 --no-opt
 API_KEY=rsk_... uv run bench/fts5.py bench data/shard data/shard/fts5.sqlite midi-shard0 -o data/bench/fts5-shard.json
 uv run bench/fts5.py queries data/shard data/bench/fts5-shard.json
 node bench/reader.mjs --base https://<cloudfront domain> --db <database id> [--read-ahead 0]
+```
+
+Static suffix array:
+
+```sh
+uv run what-the-midi static data/shard data/static/shard-l4k --names-from data/db-all/part-000   # 65 s
+node bench/static.mjs --dir data/static/shard-l4k --run check
+node bench/static.mjs --dir data/static/shard-l4k --run visitors --out data/bench/static/dir-l4k.json
+node bench/static.mjs --dir data/static/shard-l4k --run queries --out data/bench/static/dir-l4k-queries.json
+aws s3 sync data/static/shard-l4k s3://<bucket>/static/v1/shard-l4k
+node bench/static.mjs --s3 <bucket> --region eu-west-3 --prefix static/v1/shard-l4k --run visitors
 ```
 
 `bench/reader.mjs` needs the reader built in `../reduck-sqlite/reader`

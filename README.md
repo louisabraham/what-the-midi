@@ -35,6 +35,21 @@ almost identical melodies, and builds the index.
 Frontend development: run `serve` on port 8765, then `npm run dev` in
 `web/`. Vite sends `/api` requests to the server.
 
+### With no server: a static index on S3
+
+```sh
+uv run what-the-midi static data/db data/static     # exact mode, an index with one part
+aws s3 sync data/static s3://<bucket>/<prefix>       # or any host with range requests and CORS
+# open web/static.html?index=https://<bucket>.s3.<region>.amazonaws.com/<prefix>
+uv run what-the-midi serve-static data/static        # or a local copy, on port 8766
+```
+
+The page reads the index with range GETs: about 12 KB at open, then 2
+rounds of GETs and about 70 KB per search. It shows the number of matches
+and of files, and the notes around the first 10 matches, but not the
+ranking, the score and the player of the server. See
+`whatthemidi/static.py` and `bench/README.md`.
+
 Tests: `uv run pytest`.
 
 ## How it works
@@ -132,9 +147,9 @@ without an octave number goes to the octave closest to the previous note.
 
 On an Apple M4 Max (16 cores, 128 GB RAM):
 
-| Index | Files | Unique melodies | Notes | Index on disk | Build |
-| --- | --- | --- | --- | --- | --- |
-| Lakh `clean_midi` | 17k | 14k | 24 M | 0.6 GB | 4 s |
+| Index                              | Files  | Unique melodies        | Notes | Index on disk  | Build  |
+| ---------------------------------- | ------ | ---------------------- | ----- | -------------- | ------ |
+| Lakh `clean_midi`                  | 17k    | 14k                    | 24 M  | 0.6 GB         | 4 s    |
 | 10 public collections (`collect/`) | 11.4 M | 4.6 M, in 4.2 M groups | 1.7 G | 39 GB, 2 parts | 10 min |
 
 - Reading and deduplicating the first 9.3 M files: 52 min, most of it

@@ -29,6 +29,24 @@ def main(argv=None):
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--static", default=None, help="frontend directory (default: web/dist)")
 
+    p = sub.add_parser("static", help="write a static index, for a frontend that reads it from S3")
+    p.add_argument("db_dir", help="an index with one part, or the shard of bench/fts5.py")
+    p.add_argument("out_dir")
+    p.add_argument("--mode", default="exact", choices=["exact", "octave", "transpose", "transpose_octave"])
+    p.add_argument("--leaf", type=int, default=4096, help="suffixes per leaf")
+    p.add_argument("--fanout", type=int, default=256, help="children per internal node")
+    p.add_argument("--root-max", type=int, default=None, help="children of the root (default: fanout)")
+    p.add_argument("--key-min", type=int, default=0, help="notes of each key, at least")
+    p.add_argument("--part-mib", type=int, default=1 << 20,
+                   help="size of the files, at most (default: 1 file per level, the fastest on S3; 64 for GitHub Pages)")
+    p.add_argument("--names-from", default=None,
+                   help="the index part with names.json, for the shard of bench/fts5.py")
+
+    p = sub.add_parser("serve-static", help="serve a static index on HTTP, with range requests and CORS")
+    p.add_argument("out_dir")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8766)
+
     args = parser.parse_args(argv)
 
     if args.command == "index":
@@ -62,6 +80,20 @@ def main(argv=None):
         from .server import DEFAULT_STATIC, serve
 
         serve(args.db_dir, args.host, args.port, args.static or DEFAULT_STATIC)
+
+    elif args.command == "static":
+        from .static import build, load_names
+
+        names, titles = load_names(args.db_dir, args.names_from)
+        stats = build(args.db_dir, args.out_dir, mode=args.mode, leaf=args.leaf, fanout=args.fanout,
+                      root_max=args.root_max, key_min=args.key_min,
+                      part_bytes=args.part_mib << 20, names=names, titles=titles)
+        print(json.dumps(stats, indent=1))
+
+    elif args.command == "serve-static":
+        from .static import serve
+
+        serve(args.out_dir, args.host, args.port)
 
 
 if __name__ == "__main__":

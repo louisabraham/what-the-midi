@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Search a melody in a MIDI collection, with no server" />
+    <title>What the MIDI, static</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E" />
+    <style>
+      main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; display: flex; flex-direction: column; gap: 16px; }
+      h1 { margin: 0; font-size: 1.8rem; }
+      .muted { color: var(--muted); margin: 4px 0 0; overflow-wrap: anywhere; }
+      form { display: flex; gap: 6px; }
+      input { flex: 1; min-width: 0; font: inherit; font-size: 1.05rem; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+      button { font: inherit; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; }
+      .examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); }
+      .error { color: var(--error); }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+      .card h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+      .notes { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; overflow-wrap: anywhere; margin: 6px 0 0; }
+      .notes b { color: var(--accent); }
+      .stats { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>What the MIDI, static</h1>
+        <p class="muted" id="about">Opening the index…</p>
+      </header>
+      <form id="form">
+        <label for="q" hidden>Notes</label>
+        <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="E5 D#5 E5 D#5 E5 B4 D5 C5 A4" />
+        <button type="submit">Search</button>
+      </form>
+      <div class="examples" id="examples">Examples:</div>
+      <p id="summary" class="stats" aria-live="polite"></p>
+      <section id="results"></section>
+    </main>
+    <script type="module" src="/src/static.js"></script>
+  </body>
+</html>

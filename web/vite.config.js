@@ -5,6 +5,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig({
   plugins: [svelte()],
   // the Bravura music font is embedded in VexFlow
-  build: { chunkSizeWarningLimit: 1500 },
+  // static.html: the search with no server (whatthemidi/static.py)
+  build: { chunkSizeWarningLimit: 1500, rollupOptions: { input: ['index.html', 'static.html'] } },
   server: { proxy: { '/api': 'http://127.0.0.1:8765' } },
 });
