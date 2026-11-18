@@ -445,6 +445,17 @@ def bench(db_dir, local, name, per_length, out):
     summary(rows)
 
 
+def export_queries(db_dir, results, out, per_length):
+    """The queries of bench, with the number of files that bench found, for
+    bench/reader.mjs."""
+    rows = json.loads(Path(results).read_text())
+    qs = queries(db_dir, per_length)
+    assert [r["label"] for r in rows] == [label for label, _ in qs], "not the queries of this bench"
+    Path(out).write_text(json.dumps([{"label": label, "notes": len(q), "phrase": phrase(q), "files": r["files"]}
+                                     for (label, q), r in zip(qs, rows)]))
+    print(f"{len(rows)} queries in {out}")
+
+
 def summary(rows):
     cols = [c for c in ("sa_ms", "fts_ms", "fts10_ms", "app_ms", "remote_sql_ms", "remote_ms")
             if c in rows[0]]
@@ -481,11 +492,18 @@ def main():
     p.add_argument("name", nargs="?")
     p.add_argument("-n", "--per-length", type=int, default=30)
     p.add_argument("-o", "--out", default="data/bench/fts5.json")
+    p = sub.add_parser("queries", help="the queries of a bench run, for bench/reader.mjs")
+    p.add_argument("db_dir")
+    p.add_argument("results", help="the JSON file of a bench run on db_dir")
+    p.add_argument("-o", "--out", default="data/bench/shard-queries.json")
+    p.add_argument("-n", "--per-length", type=int, default=30)
     args = ap.parse_args()
     if args.command == "local":
         build_local(args.db_dir, args.out)
     elif args.command == "upload":
         upload(args.db_dir, args.name, args.jobs, not args.no_optimize)
+    elif args.command == "queries":
+        export_queries(args.db_dir, args.results, args.out, args.per_length)
     elif args.command == "shard":
         shard(args.db_dir, args.out_dir, int(args.max_mib * 2**20))
     else:

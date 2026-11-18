@@ -192,6 +192,7 @@ uv run bench/fts5.py bench data/db-all data/fts5-all.sqlite -o data/bench/fts5-a
 uv run bench/fts5.py shard data/db-all data/shard     # 4 min
 API_KEY=rsk_... uv run bench/fts5.py upload data/shard midi-shard0 -j 8 --no-optimize
 API_KEY=rsk_... uv run bench/fts5.py bench data/shard data/shard/fts5.sqlite midi-shard0 -o data/bench/fts5-shard.json
+uv run bench/fts5.py queries data/shard data/bench/fts5-shard.json
 node bench/reader.mjs --base https://<cloudfront domain> --db <database id> [--read-ahead 0]
 ```
 
