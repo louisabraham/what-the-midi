@@ -88,13 +88,13 @@ async function openDatabase() {
   const t = performance.now();
   // readAhead 0: lookups, not scans (the measured setting, bench/cold.mjs)
   const d = await Database.open({ store: httpStore(BASE), prefix: PREFIX, databaseId: DB, readAhead: 0 });
-  const took = performance.now() - t;
   // the rows are numbered 1 to n: max(id) reads one leaf, count(*) the whole table
   const total = (await d.all('SELECT max(id) AS n FROM files'))[0].n;
+  const took = performance.now() - t;
   db = d;
   const s = stats();
-  $('about').textContent = `${fmt(total)} files. Opened in ${ms(took)}: ${s.gets} GETs, ${size(s.bytes)}`
-    + ` (the head, the manifest and the interior pages of the B-trees), from ${BASE}`;
+  $('about').textContent = `${fmt(total)} files. Ready in ${ms(took)}: the head, the manifest, then ${s.gets} GETs`
+    + ` of pages, ${size(s.bytes)} (the top interior pages of the B-trees, page 1, the last page of files), from ${BASE}`;
   $('about').className = 'muted';
   return d;
 }

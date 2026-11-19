@@ -23,12 +23,14 @@ uv run demo/sqlite-s3/build_db.py data/db-all data/shard/demo.sqlite --shard dat
 ```
 
 Measured in Chrome from a client in Europe (S3 eu-west-3, about 35 ms per
-GET), median of a few searches:
+GET), median of a few searches. The whole collection has one interior
+bundle (`-bundle-max`, reduck-sqlite `docs/convert.md`); the shard was
+measured on 2026-11-19, with every interior page in bundles:
 
 | | One shard (217,143 files) | Whole collection (4,190,187 files) |
 | --- | --- | --- |
-| Open | 300 ms, 6 GETs, 1.2 MB | 540 ms, 22 GETs, 7.5 MB + 1.45 MB of manifest |
-| A search, empty cache | 350 ms, 16 GETs, 0.5 MB | 450 to 640 ms, 26 to 74 GETs, 1 to 3.3 MB |
+| Ready (open, then the number of files) | 300 ms, 6 GETs, 1.2 MB | 360 to 410 ms, 3 GETs, 0.56 MB + 1.45 MB of manifest |
+| A search, empty cache | 350 ms, 16 GETs, 0.5 MB | 460 to 660 ms, 32 to 87 GETs, 1.4 to 3.9 MB |
 
 The bucket allows `s3:GetObject` on `sqlite/v1/*` to anyone, and a CORS
 rule for GET with `Range`.

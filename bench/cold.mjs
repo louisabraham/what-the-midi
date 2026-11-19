@@ -9,11 +9,14 @@
 // Options: --queries (data/bench/shard-queries.json), --visitors (40),
 // --reader (the built reader's index.js), --zstd js|native, --range-gets
 // (with a framed manifest), --warm-tokens (one query per token, all at once,
-// before the phrase query), --read-ahead (0), --parallel (8), --latency (ms
+// before the phrase query), --wait-interior (open waits for the interior
+// bundles, as the reader did before 2026-11-19), --manifest <key> (read
+// that manifest of the database, not the one its head names), --read-ahead (0), --parallel (8), --latency (ms
 // per GET, 9) and --mbps (megabytes per second of the link, 57) for --dir,
 // --out.
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { open as openFile, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -31,6 +34,8 @@ const { values: a } = parseArgs({
     zstd: { type: 'string', default: 'js' },
     'range-gets': { type: 'boolean', default: false },
     'warm-tokens': { type: 'boolean', default: false },
+    'wait-interior': { type: 'boolean', default: false },
+    manifest: { type: 'string' },
     latency: { type: 'string', default: '9' }, mbps: { type: 'string', default: '57' },
     parallel: { type: 'string', default: '8' },
     'read-ahead': { type: 'string', default: '0' },
@@ -74,10 +79,28 @@ function folderStore(dir, latency, mbps) {
 // temporary credentials of AWS_PROFILE, read once, kept in memory only
 const creds = a.s3 ? JSON.parse(execFileSync('aws', ['configure', 'export-credentials', '--format', 'process'], { encoding: 'utf8' })) : undefined;
 
-function makeStore() {
+function baseStore() {
   if (a.dir) return folderStore(a.dir, Number(a.latency), Number(a.mbps));
   if (a.base) return R.httpStore(a.base);
   return R.s3Store({ bucket: a.s3, region: a.region, credentials: { accessKeyId: creds.AccessKeyId, secretAccessKey: creds.SecretAccessKey, sessionToken: creds.SessionToken } });
+}
+
+// --manifest: a head that names that manifest, made once
+const headKey = `${a.prefix}/${a.db}/head.json`;
+let head;
+if (a.manifest) {
+  const z = await baseStore().get(a.manifest);
+  if (!z) throw new Error(`${a.manifest}: not found`);
+  head = new TextEncoder().encode(JSON.stringify({
+    format: 1, database_id: a.db, generation: 1,
+    snapshot: { key: a.manifest, sha256: createHash('sha256').update(z).digest('hex'), size: z.length, txid: 1 },
+  }));
+}
+
+function makeStore() {
+  const store = baseStore();
+  if (!head) return store;
+  return { get: (key) => (key === headKey ? Promise.resolve(head) : store.get(key)), getRange: store.getRange?.bind(store) };
 }
 
 const COUNT = 'SELECT count(*) AS n FROM m WHERE m MATCH ?';
@@ -87,6 +110,7 @@ const n = Number(a.visitors);
 const picks = Array.from({ length: n }, (_, i) => Math.floor((i * queries.length) / n));
 const options = {
   readAhead: Number(a['read-ahead']), parallel: Number(a.parallel), rangeGets: a['range-gets'],
+  waitInterior: a['wait-interior'],
   zstd: a.zstd === 'native' ? (z, size) => new Uint8Array(zlib.zstdDecompressSync(z, { maxOutputLength: size || undefined })) : undefined,
 };
 const ms = (t) => performance.now() - t;
