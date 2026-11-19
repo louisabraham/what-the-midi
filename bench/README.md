@@ -10,6 +10,11 @@ over HTTP).
 query takes 937 ms. On sqlite4all, the network takes 97 to 99 % of the
 time of a search, also on a database of maximal size (1 GiB).
 
+**With no server** (a page that reads S3 with range GETs): the static
+suffix array of the full collection (27.8 GB) answers a new visitor's first
+search in 177 ms, against 523 ms for FTS5 with the reduck-sqlite reader
+(812 ms with the fzstd of a browser), with 39 times fewer bytes.
+
 ## Method
 
 - **Tokens:** each melody is one row of a contentless FTS5 table
@@ -269,7 +274,7 @@ for `dup`.
 |        | Static suffix array                                   | FTS5 (`v6-f16`)                        |
 | ------ | ----------------------------------------------------- | -------------------------------------- |
 | Stored | 4.37 GB (leaves 3.82 GB, text and `dup` 0.27 GB each) | 0.87 GB                                |
-| Build  | 65 s, 22 GB of RAM                                    | 26 min for FTS5, then `sqlite-convert` |
+| Build  | 66 s, 10.2 GB of RAM                                  | 26 min for FTS5, then `sqlite-convert` |
 
 ### Results
 
@@ -347,10 +352,57 @@ The 190 queries, each on a new index (open not counted):
   region that many searches read, so about 32 ms), for 654 KB at open.
 
 For a public page: a public bucket or CloudFront, and a CORS rule that
-allows the `Range` header. A static index of the full index (1.74 G
-notes) is about 7 shards like this one, or one index in 2 parts of up to
-2^32 notes: the time of a search stays the same, because the number of
-rounds depends on the levels of the tree only.
+allows the `Range` header.
+
+### The full collection: 4.19 M melodies, 1.74 G notes
+
+`what-the-midi static data/db-all` puts the 2 parts of the index in one
+text and builds its suffix array again (pydivsufsort, 32-bit: up to 2^31
+notes), so a search still reads one tree. FTS5: `data/fts5-all.sqlite`
+(already optimized), written by `sqlite-convert -preset reader
+-optimize=false` as `all-f16`, the settings of `v6-f16`. The queries:
+`data/bench/all-queries.json`, the 190 queries of `fts5.py bench` on the
+full index, with their number of files.
+
+|        | Static suffix array                                     | FTS5 (`all-f16`)            |
+| ------ | ------------------------------------------------------- | --------------------------- |
+| Stored | 27.8 GB (6 files of leaves, 24.0 GB), 3,334 objects     | 5.1 GB, 5,569 chunks        |
+| Build  | 8 min, 26.3 GB of RAM                                   | 26 min for FTS5, then 1 min |
+| Upload | 26 min (18 MB/s)                                        | 10 min                      |
+| Open   | 75 KB: the manifest and a root of 1,661 children        | 7.0 MB: the interior pages  |
+| Tree   | 425,197 leaves, 1,661 internal nodes: 2 rounds a search |                             |
+
+On S3, on 19 November at 01:33, one run after the other (40 visitors):
+
+| Layout                                 | Open   | 1st query | Open + 1st (p90)    | 2nd query  | Downloaded  |
+| -------------------------------------- | ------ | --------- | ------------------- | ---------- | ----------- |
+| FTS5 `all-f16`, fzstd, warm-up         | 537 ms | 275 ms    | 812 ms (1,207 ms)   | 231 ms     | 8.5 MB      |
+| FTS5 `all-f16`, native zstd, warm-up   | 301 ms | 223 ms    | 523 ms (841 ms)     | 153 ms     | 8.5 MB      |
+| static, 4,096 per leaf, files of 4 GiB | 34 ms  | 143 ms    | **177 ms** (269 ms) | **125 ms** | **0.22 MB** |
+
+The 190 queries of the static index, each on a new index: 139 ms median,
+p90 224 ms, max 383 ms on S3; 27 ms, 38 ms and 113 ms in the model of
+`cold.mjs` (open + first: 39 ms, p90 52 ms, as for the shard).
+
+- **3 to 4.6 times faster than FTS5 for a new visitor** (177 ms against
+  523 ms native and 812 ms fzstd), with 39 times fewer bytes. The second
+  search is also faster (125 ms against 153 ms and 231 ms).
+- **The static index grows with the collection, but not its search.**
+  From the shard to the full collection (6.5 times the notes), open + 1st
+  goes from 151 ms to 177 ms: the same 2 rounds. The first query takes
+  26 ms more (143 ms against 117 ms), probably because the internal nodes
+  (17 MB against 2.6 MB) and the leaves have more regions that no search
+  read a short time before.
+  FTS5 goes from 312 ms to 523 ms (native): a visitor downloads 8.5 MB
+  instead of 2.4 MB, of which 7.0 MB at open.
+- **The query with the most matches** (32 notes, 3.77 M matches in 92
+  files: a pattern that repeats inside a few files): 3.9 MB of `dup`
+  bytes to count the files, 249 ms on S3.
+- **The build fits in RAM:** 26.3 GB at the peak (15 bytes per note),
+  because the LCP reads 8-byte words through an unaligned view of the
+  text (no copy), and the `dup` pairs are sorted one group of files (2^27
+  notes) at a time. Before: about 80 bytes per note, 140 GB here.
+- **A file is at most 4 GiB:** the offsets in a node are 32-bit.
 
 ## The full index on sqlite4all
 
@@ -386,6 +438,15 @@ node bench/static.mjs --dir data/static/shard-l4k --run visitors --out data/benc
 node bench/static.mjs --dir data/static/shard-l4k --run queries --out data/bench/static/dir-l4k-queries.json
 aws s3 sync data/static/shard-l4k s3://<bucket>/static/v1/shard-l4k
 node bench/static.mjs --s3 <bucket> --region eu-west-3 --prefix static/v1/shard-l4k --run visitors
+
+# the full collection
+uv run what-the-midi static data/db-all data/static/all-l4k --root-max 2048   # 8 min, 26 GB of RAM
+uv run bench/fts5.py queries data/db-all data/bench/fts5-all.json -o data/bench/all-queries.json
+node bench/static.mjs --dir data/static/all-l4k --run check --queries data/bench/all-queries.json
+aws s3 sync data/static/all-l4k s3://<bucket>/static/v1/all-l4k
+node bench/static.mjs --s3 <bucket> --region eu-west-3 --prefix static/v1/all-l4k --run visitors --queries data/bench/all-queries.json
+sqlite-convert -db data/fts5-all.sqlite -to s3://<bucket> -region eu-west-3 -id all-f16 -preset reader -optimize=false
+node bench/cold.mjs --s3 <bucket> --region eu-west-3 --db all-f16 --range-gets --warm-tokens [--zstd native] --queries data/bench/all-queries.json
 ```
 
 `bench/reader.mjs` needs the reader built in `../reduck-sqlite/reader`

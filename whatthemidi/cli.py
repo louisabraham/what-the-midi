@@ -37,8 +37,9 @@ def main(argv=None):
     p.add_argument("--fanout", type=int, default=256, help="children per internal node")
     p.add_argument("--root-max", type=int, default=None, help="children of the root (default: fanout)")
     p.add_argument("--key-min", type=int, default=0, help="notes of each key, at least")
-    p.add_argument("--part-mib", type=int, default=1 << 20,
-                   help="size of the files, at most (default: 1 file per level, the fastest on S3; 64 for GitHub Pages)")
+    p.add_argument("--part-mib", type=int, default=4096,
+                   help="size of the files, at most (default and maximum: 4096, so 1 file per level "
+                        "for a shard, the fastest on S3; 64 for GitHub Pages)")
     p.add_argument("--names-from", default=None,
                    help="the index part with names.json, for the shard of bench/fts5.py")
 

@@ -255,23 +255,15 @@ export class StaticIndex {
   /**
    * The file of each position: {file, name, title, start, end, offset}
    * (start and end: the notes of the file in the text). 1 round of GETs of
-   * files-<k>.json, 1,024 files each. Needs an index built with names.
+   * files-<k>.json: the files that have notes in positions
+   * [k * files_chunk_notes, (k + 1) * files_chunk_notes). Needs an index
+   * built with names.
    */
   async files(positions) {
-    const firsts = this.m.file_chunks;
-    if (!firsts) throw new Error('this index has no file names');
+    const size = this.m.files_chunk_notes;
+    if (!size) throw new Error('this index has no file names');
     this.chunks ??= new Map();
-    const chunkOf = (p) => {
-      let lo = 0;
-      let hi = firsts.length;
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >> 1;
-        if (firsts[mid] <= p) lo = mid;
-        else hi = mid;
-      }
-      return lo;
-    };
-    const ks = positions.map(chunkOf);
+    const ks = positions.map((p) => Math.floor(p / size));
     for (const k of new Set(ks)) {
       if (!this.chunks.has(k)) {
         const p = this.get(`files-${String(k).padStart(5, '0')}.json`).then((b) => JSON.parse(new TextDecoder().decode(b)));

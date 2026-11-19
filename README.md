@@ -38,14 +38,16 @@ Frontend development: run `serve` on port 8765, then `npm run dev` in
 ### With no server: a static index on S3
 
 ```sh
-uv run what-the-midi static data/db data/static     # exact mode, an index with one part
+uv run what-the-midi static data/db data/static     # exact mode; 8 min and 26 GB of RAM for 1.74 G notes
 aws s3 sync data/static s3://<bucket>/<prefix>       # or any host with range requests and CORS
 # open web/static.html?index=https://<bucket>.s3.<region>.amazonaws.com/<prefix>
 uv run what-the-midi serve-static data/static        # or a local copy, on port 8766
 ```
 
-The page reads the index with range GETs: about 12 KB at open, then 2
-rounds of GETs and about 70 KB per search. It shows the number of matches
+The page reads the index with range GETs: 12 to 75 KB at open, then 2
+rounds of GETs and about 70 KB per search. The parts of a large index go
+in one static index (16 bytes per note: 27.8 GB for the 1.74 G notes of
+`collect/`). It shows the number of matches
 and of files, and the notes around the first 10 matches, but not the
 ranking, the score and the player of the server. See
 `whatthemidi/static.py` and `bench/README.md`.
